@@ -122,6 +122,7 @@ class WorkerManager:
             p.terminate()
         self._kill_on_terminate = True
 
+    @logger.catch()
     def run(self):
         if self.processes:
             raise RuntimeError('Already running!')
@@ -136,10 +137,14 @@ class WorkerManager:
                                         encoding='utf-8')
             if self.gears_consumers:
                 self.acquire_gears_registration_lock(redis_conn)
-                ids = [
-                    r[1]
-                    for r in redis_conn.execute_command('RG.DUMPREGISTRATIONS')
-                ]
+                try:
+                    ids = [
+                        r[1]
+                        for r in redis_conn.execute_command('RG.DUMPREGISTRATIONS')
+                    ]
+                except redis.ResponseError:
+                    self.terminate()
+                    raise RuntimeError("This redis instance does not have the Redis Gears plugin loaded.")
                 for i in ids:
                     redis_conn.execute_command('RG.UNREGISTER', i)
                 for consumer in self.gears_consumers:
@@ -165,6 +170,7 @@ class WorkerManager:
         with redis_conn.pipeline() as p:
             p.watch('RG.REGISTERLOCK')
             if p.exists('RG.REGISTERLOCK'):
+                self.terminate()
                 raise RuntimeError(
                     'Try again later, RG registration is locked, possibly by another instance'
                 )
