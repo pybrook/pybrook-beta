@@ -8,3 +8,7 @@ __pycache__/
 .coverage
 site/
 docs_html/
+.mypy_cache
+.pytest_cache
+htmlcov/
+dist/
