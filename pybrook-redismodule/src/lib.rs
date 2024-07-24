@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::ptr::NonNull;
 use redis_module::{redis_module, Context, RedisError, RedisResult, RedisString, NextArg, KeyType, RedisModuleStreamID, RedisValue, NotifyEvent, RedisModule_StreamAdd, raw, REDISMODULE_STREAM_ADD_AUTOID, RedisModuleKey, RedisModuleString, Status};
 use redis_module::key::{KeyFlags, KeyMode, RedisKey};
@@ -5,6 +6,8 @@ use std::io::Read;
 use serde_json::Map;
 use std::os::raw::c_int;
 use serde_json::json;
+
+static mut MAP: HashMap<String, String> = HashMap::new();
 
 fn redis_string<T: Into<Vec<u8>>>(ctx: &Context, value: T) -> RedisString{
     RedisString::create(NonNull::new(ctx.ctx), value)
@@ -94,7 +97,7 @@ fn on_stream(ctx: &Context, event_type: NotifyEvent, event: &str, key: &[u8]) {
     println!("{:?} {} {:?}", event_type, event, key);
     let stream = ctx.open_key(&RedisString::create(NonNull::new(ctx.ctx), key));
     stream_add(ctx, "out_test".as_bytes(), json!({"a": "b", "c": "d"}));
-    for record in stream.get_stream_iterator(false).unwrap() {
+    for record in stream.get_stream_range_iterator(None, None, false, false).unwrap() {
         let mut message = serde_json::Map::new();
         for field in record.fields {
             println!("FIELD {:?} {:?}", field.0.to_string(), field.1.to_string());
