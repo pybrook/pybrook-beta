@@ -96,6 +96,7 @@ fn hello_mul(_: &Context, args: Vec<RedisString>) -> RedisResult {
 fn on_stream(ctx: &Context, event_type: NotifyEvent, event: &str, key: &[u8]) {
     println!("{:?} {} {:?}", event_type, event, key);
     let stream = ctx.open_key(&RedisString::create(NonNull::new(ctx.ctx), key));
+
     stream_add(ctx, "out_test".as_bytes(), json!({"a": "b", "c": "d"}));
     for record in stream.get_stream_range_iterator(None, None, false, false).unwrap() {
         let mut message = serde_json::Map::new();
@@ -129,6 +130,7 @@ redis_module! {
     version: 1,
     allocator: (redis_module::alloc::RedisAlloc, redis_module::alloc::RedisAlloc),
     data_types: [],
+    rdb_save: [],
     commands: [
         ["hello.mul", hello_mul, "", 0, 0, 0],
     ],

@@ -28,3 +28,7 @@ If the HMAP has the LENGTH of DEPS_NO, it is sent to an argument stream, which t
 
 Thus, a dependency resolver is just a function called by the redis module internally, when a Stream Event occurs,
 caused either by an Artificial Field generation or by Input Report arrival.
+
+# Config persistence
+
+For now, it looks like it might be best to use a custom redis type
