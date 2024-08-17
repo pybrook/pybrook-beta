@@ -1,55 +1,58 @@
-use redis_module::key::{HMGetResult, KeyFlags, KeyMode, RedisKey};
+use redis_module::key::{HMGetResult};
 use redis_module::logging::log_warning;
-use redis_module::redisvalue::RedisValueKey;
-use redis_module::{
-  raw, redis_module, Context, KeyType, NextArg, NotifyEvent, RedisError, RedisModuleKey,
-  RedisModuleStreamID, RedisModuleString, RedisModule_StreamAdd, RedisResult, RedisString,
-  RedisValue, Status, REDISMODULE_STREAM_ADD_AUTOID,
-};
-use serde::Deserializer;
-use serde_json::{json, Number};
+use redis_module::{raw, redis_module, Context, RedisModuleStreamID, NotifyEvent, RedisModule_StreamAdd, RedisResult, RedisString, RedisValue, Status, REDISMODULE_STREAM_ADD_AUTOID, RedisError};
+use serde::{Deserialize, Serialize};
+use serde_json::{json};
 use serde_json::{Map, Value};
-use std::collections::{BTreeMap, HashMap};
-use std::hash::Hash;
-use std::io::Read;
+use std::collections::{HashMap};
 use std::os::raw::c_int;
 use std::ptr::NonNull;
 use std::str;
-use std::sync::{LazyLock, Mutex, OnceLock, RwLock};
+use std::sync::{LazyLock, RwLock};
+use redis_module_macros::command;
 
 const MSG_ID_FIELD: &str = "@pb@msg_id";
 
-#[derive(Debug, Clone)]
-struct Dependency<'a> {
-  stream_key: &'a str, // could be some kind of wildcard in the future,
-  // to support partitioning
-  // tagging would still work the same way
-  fields: Vec<&'a str>,
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct DependencyField {
+  src: String,
+  dst: String,
 }
 
-impl Dependency<'_> {
-  fn hash_key(&self, field: &str) -> String {
-    format!("{}:{field}", self.stream_key)
+impl DependencyField {
+  fn new(name: &str) -> Self {
+    Self {
+      src: String::from(name),
+      dst: String::from(name),
+    }
   }
 }
 
-#[derive(Debug, Clone)]
-struct DependencyResolver<'a> {
-  inputs: Vec<Dependency<'a>>,
-  output_stream_key: &'a str,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Dependency {
+  stream_key: String, // could be some kind of wildcard in the future,
+  // to support partitioning
+  // tagging would still work the same way
+  fields: Vec<DependencyField>,
 }
 
-#[derive(Debug)]
-struct InputTagger<'a> {
-  stream_key: &'a str,
-  obj_id_field: &'a str,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct DependencyResolver {
+  inputs: Vec<Dependency>,
+  output_stream_key: String,
 }
 
-#[derive(Debug)]
-struct BrookState<'a> {
-  stream_read_ids: HashMap<&'a str, RedisModuleStreamID>,
-  dependency_resolvers: HashMap<&'a str, DependencyResolver<'a>>,
-  input_taggers: HashMap<&'a str, InputTagger<'a>>,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct InputTagger {
+  stream_key: String,
+  obj_id_field: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BrookConfig {
+  dependency_resolvers: HashMap<String, DependencyResolver>,
+  input_taggers: HashMap<String, InputTagger>,
 }
 
 #[derive(Debug)]
@@ -59,7 +62,7 @@ enum DependencyResolverError {
   KeyDropError,
 }
 
-impl DependencyResolver<'_> {
+impl DependencyResolver {
   fn process_message(
     &self,
     ctx: &Context,
@@ -72,32 +75,40 @@ impl DependencyResolver<'_> {
       .ok_or(DependencyResolverError::MissingIdField)?;
     let total_dependencies: i64 = self.inputs.len() as i64;
     let mut message_cloned = message.clone();
-    let mut message_filtered = serde_json::Map::from_iter(dependency.fields.clone().into_iter().map(
-        |f| (dependency.hash_key(f), message_cloned.remove(f).unwrap_or(Value::Null))).collect::<HashMap<String, Value>>());
+    let mut dependency_map = serde_json::Map::from_iter(
+      dependency
+        .fields
+        .clone()
+        .into_iter()
+        .map(|f| {
+          (
+            String::from(f.dst),
+            message_cloned.remove(&f.src).unwrap_or(Value::Null),
+          )
+        })
+        .collect::<HashMap<String, Value>>(),
+    );
 
     let deps_map_key = redis_string(
       ctx,
       format!("__{}:{}@pb@dmap__", self.output_stream_key, message_id),
     );
-    let dcount_key = format!("__{}:{}@pb@dcount__", self.output_stream_key, message_id);
-    if incr(
+    let dcount_key = redis_string(
       ctx,
-      &dcount_key,
-    )
-      .eq(&total_dependencies)
-    {
-      // println!("DEPS MET");
+      format!("__{}:{}@pb@dcount__", self.output_stream_key, message_id),
+    );
+    if incr(ctx, &dcount_key).eq(&total_dependencies) {
       let key = ctx.open_key(&deps_map_key);
       let fields: Vec<RedisString> = self
         .inputs
         .iter()
-        .map(|d| d.fields.iter().map(|f| redis_string(ctx, d.hash_key(f))))
+        .map(|d| d.fields.iter().map(|f| redis_string(ctx, f.dst.clone())))
         .flatten()
         .collect();
       let values: Option<HMGetResult<_, String>> = key
         .hash_get_multi(&fields)
         .map_err(|_| DependencyResolverError::HMGETError)?;
-      let mut res: Map<String, Value> = match values {
+      let mut dependency_redis_hmap: Map<String, Value> = match values {
         None => Map::new(),
         Some(values) => Map::from_iter(
           values
@@ -111,16 +122,22 @@ impl DependencyResolver<'_> {
             .collect::<HashMap<String, Value>>(),
         ),
       };
-      ctx.open_key_writable(&redis_string(ctx, dcount_key)).delete().map_err(|_| DependencyResolverError::KeyDropError);
-      res.append(&mut message_filtered);
-      stream_add(ctx, self.output_stream_key.as_bytes(), &Value::from(res));
+      dependency_redis_hmap.append(&mut dependency_map);
+      stream_add(ctx, self.output_stream_key.as_bytes(), &Value::from(dependency_redis_hmap));
       let key = ctx.open_key_writable(&deps_map_key);
-      key.delete().map_err(|_| DependencyResolverError::KeyDropError)?;
+      key.delete()
+        .map_err(|_| DependencyResolverError::KeyDropError)?;
+      ctx.open_key_writable(&dcount_key)
+        .delete()
+        .map_err(|_| DependencyResolverError::KeyDropError)?;
       Ok(())
     } else {
       let key = ctx.open_key_writable(&deps_map_key);
-      for (field, value) in message_filtered {
-        key.hash_set(&field, redis_string(ctx, serde_json::to_string(&value).unwrap_or("null".into())));
+      for (field, value) in dependency_map {
+        key.hash_set(
+          &field,
+          redis_string(ctx, serde_json::to_string(&value).unwrap_or("null".into())),
+        );
       }
       Ok(())
     }
@@ -133,9 +150,8 @@ enum TaggerError {
   CouldNotParseId,
 }
 
-fn incr(ctx: &Context, key: &str) -> i64 {
-  let key_redis_str = redis_string(ctx, key);
-  let incr_key = ctx.open_key(&key_redis_str);
+fn incr(ctx: &Context, key_redis_str: &RedisString) -> i64 {
+  let incr_key= ctx.open_key(&key_redis_str);
   let value: i64 = String::from_utf8_lossy(incr_key.read().unwrap().unwrap_or(&[]).into())
     .parse()
     .unwrap_or(0);
@@ -144,14 +160,14 @@ fn incr(ctx: &Context, key: &str) -> i64 {
   value + 1
 }
 
-impl InputTagger<'_> {
+impl InputTagger {
   fn tag_message(
     &self,
     ctx: &Context,
     message: &mut Map<String, Value>,
   ) -> Result<(), TaggerError> {
     let object_id: String = match message
-      .get(self.obj_id_field)
+      .get(&self.obj_id_field)
       .ok_or(TaggerError::InvalidIdField)?
     {
       Value::Bool(p) => Some(p.to_string()),
@@ -164,7 +180,10 @@ impl InputTagger<'_> {
       MSG_ID_FIELD.into(),
       incr(
         ctx,
-        &format!("__{}:{}:{}__", self.stream_key, object_id, MSG_ID_FIELD),
+        &redis_string(
+          ctx,
+          format!("__{}:{}:{}__", self.stream_key, object_id, MSG_ID_FIELD),
+        ),
       )
         .into(),
     );
@@ -172,58 +191,64 @@ impl InputTagger<'_> {
   }
 }
 
-static GLOBAL_STATE: LazyLock<RwLock<BrookState>> = LazyLock::new(|| {
+static PB_CONFIG: LazyLock<RwLock<BrookConfig>> = LazyLock::new(|| {
   let mut taggers = HashMap::new();
   taggers.insert(
-    ":ztm-report",
+    String::from(":ztm-report"),
     InputTagger {
-      stream_key: ":ztm-report",
-      obj_id_field: "vehicle_number",
+      stream_key: ":ztm-report".into(),
+      obj_id_field: "vehicle_number".into(),
     },
   );
-  let mut dependency_resolvers: HashMap<&str, Vec<&DependencyResolver>> = HashMap::new();
-  let resolvers = vec![DependencyResolver {
-    inputs: vec![Dependency {
-      stream_key: ":ztm-report",
-      fields: vec!["lat", "lon"],
-    }],
-    output_stream_key: ":direction-args",
-  }, DependencyResolver{
-    output_stream_key: ":direction-report",
-    inputs: vec![Dependency {
-      stream_key: ":direction",
-      fields: vec!["result"],
-    }, Dependency {
-      stream_key: ":ztm-report",
-      fields: vec!["lat", "lon"]
-    }]
-  }]
+  let resolvers = vec![
+    DependencyResolver {
+      inputs: vec![Dependency {
+        stream_key: ":ztm-report".into(),
+        fields: vec![DependencyField::new("lat"), DependencyField::new("lon")],
+      }],
+      output_stream_key: ":direction-args".into(),
+    },
+    DependencyResolver {
+      output_stream_key: ":direction-report".into(),
+      inputs: vec![
+        Dependency {
+          stream_key: ":direction".into(),
+          fields: vec![DependencyField::new("result")],
+        },
+        Dependency {
+          stream_key: ":ztm-report".into(),
+          fields: vec![DependencyField::new("lat"), DependencyField::new("lon")],
+        },
+      ],
+    },
+  ]
     .into_iter()
-    .map(|r| (r.output_stream_key, r))
-    .collect::<HashMap<&str, DependencyResolver>>();
+    .map(|r| (r.output_stream_key.clone(), r))
+    .collect::<HashMap<String, DependencyResolver>>();
 
-  let state = BrookState {
-    stream_read_ids: Default::default(),
+  let state = BrookConfig {
     dependency_resolvers: resolvers,
     input_taggers: taggers,
   };
   RwLock::new(state)
 });
 
-static RESOLVER_MAP: LazyLock<RwLock<HashMap<&'static str, Vec<(DependencyResolver, Dependency)>>>> =
-  LazyLock::new(|| {
-    let mut state = GLOBAL_STATE.read().unwrap();
-    let mut map = HashMap::new();
-    for resolver in state.dependency_resolvers.values() {
-      for (stream_key, dependency) in resolver.inputs.iter().map(|d| (d.stream_key, d)) {
-        map.entry(stream_key)
-          .or_insert(Vec::new())
-          .push((resolver.clone(), dependency.clone()));
-      }
+static RESOLVER_MAP: LazyLock<
+  RwLock<HashMap<String, Vec<(DependencyResolver, Dependency)>>>,
+> = LazyLock::new(|| {
+  let state = PB_CONFIG.read().unwrap();
+  let mut map = HashMap::new();
+  for resolver in state.dependency_resolvers.values() {
+    for (stream_key, dependency) in resolver.inputs.iter().map(|d| (d.stream_key.clone(), d)) {
+      map.entry(stream_key)
+        .or_insert(Vec::new())
+        .push((resolver.clone(), dependency.clone()));
     }
-    RwLock::new(map)
-  });
+  }
+  RwLock::new(map)
+});
 
+#[inline]
 fn redis_string<T: Into<Vec<u8>>>(ctx: &Context, value: T) -> RedisString {
   RedisString::create(NonNull::new(ctx.ctx), value)
 }
@@ -266,12 +291,12 @@ fn stream_add(ctx: &Context, key_name: &[u8], message: &Value) {
   raw::close_key(key);
 }
 
-fn on_stream(ctx: &Context, event_type: NotifyEvent, event: &str, key: &'static [u8]) {
+fn on_stream(ctx: &Context, _event_type: NotifyEvent, _event: &str, key: &'static [u8]) {
   // consider trimming the stream? better than logging the last ID, assuming that this is single threaded
   let key_string = redis_string(ctx, key);
   let stream = ctx.open_key(&key_string);
 
-  let state = GLOBAL_STATE.read().unwrap();
+  let state = PB_CONFIG.read().unwrap();
   let resolver_map = RESOLVER_MAP.read().unwrap();
   // println!("HELLO");
   let stream_key_str = str::from_utf8(key.into()).expect("Only UTF-8 keys are supported!");
@@ -316,7 +341,9 @@ fn on_stream(ctx: &Context, event_type: NotifyEvent, event: &str, key: &'static 
     }
     if let Some(dependency_resolvers) = resolver_map.get(stream_key_str) {
       for (resolver, dependency) in dependency_resolvers {
-        resolver.process_message(ctx, &dependency, &message).unwrap();
+        resolver
+          .process_message(ctx, &dependency, &message)
+          .unwrap();
       }
     }
   }
@@ -333,12 +360,35 @@ fn on_stream(ctx: &Context, event_type: NotifyEvent, event: &str, key: &'static 
   // state.stream_read_ids.insert(stream_key_str, last_record_id); // this should happen even if the function fails
 }
 
+#[command(
+    {
+        name: "pb.setconfig",
+        summary: "sets the PyBrook Config",
+        flags: [Write],
+        arity: 2,
+        key_spec: [
+            {
+                flags: [ReadWrite],
+                begin_search: Index({ index : 1 }),
+                find_keys: Range({ last_key : 0, steps : 1, limit : 0 }),
+            }
+        ]
+    }
+)]
+fn set_config(_ctx: &Context, args: Vec<RedisString>) -> RedisResult {
+  let mut config = PB_CONFIG.write()?;
+  let string = args.get(1).ok_or(RedisError::WrongType)?.to_string();
+  let cfg = serde_json::from_str::<BrookConfig>(&string)?;
+  *config = cfg.clone();
+  Ok(RedisValue::Null)
+}
+
 //////////////////////////////////////////////////////
 #[cfg(test)]
 mod tests {
   use super::*;
-  use Value;
   use std::str::FromStr;
+  use Value;
 
   #[test]
   fn it_works() {
@@ -346,11 +396,13 @@ mod tests {
   }
 }
 
-fn init(ctx: &Context, args: &[RedisString]) -> Status {
+fn init(_ctx: &Context, _args: &[RedisString]) -> Status {
+  let config = PB_CONFIG.read().unwrap();
+  log_warning(format!("{}", serde_json::to_string(&*config).unwrap()));
   Status::Ok
 }
 
-fn deinit(ctx: &Context) -> Status {
+fn deinit(_ctx: &Context) -> Status {
   Status::Ok
 }
 
@@ -362,7 +414,8 @@ redis_module! {
     data_types: [],
     init: init,
     deinit: deinit,
-    commands: [],
+    commands: [
+    ],
     event_handlers: [
         [@STREAM: on_stream],
     ]

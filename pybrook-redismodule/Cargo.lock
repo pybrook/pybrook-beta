@@ -207,18 +207,18 @@ dependencies = [
 
 [[package]]
 name = "linkme"
-version = "0.3.20"
+version = "0.3.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3ae8aae8e1d516e0a3ceee1219eded7f73741607e4227bf11ef2c3e31580427"
+checksum = "3c943daedff228392b791b33bba32e75737756e80a613e32e246c6ce9cbab20a"
 dependencies = [
  "linkme-impl",
 ]
 
 [[package]]
 name = "linkme-impl"
-version = "0.3.20"
+version = "0.3.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad083d767be37e709a232ae2a244445ed032bb9c6bf7d9442dd416ba5a7b7264"
+checksum = "cb26336e6dc7cc76e7927d2c9e7e3bb376d7af65a6f56a0b16c47d18a9b1abc5"
 dependencies = [
  "proc-macro2",
  "quote 1.0.36",
@@ -358,7 +358,9 @@ dependencies = [
 name = "pybrook_redis"
 version = "0.1.0"
 dependencies = [
+ "linkme",
  "redis-module",
+ "redis-module-macros",
  "serde",
  "serde_json",
 ]
@@ -399,6 +401,19 @@ dependencies = [
  "regex",
  "serde",
  "strum_macros",
+]
+
+[[package]]
+name = "redis-module-macros"
+version = "2.0.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9c92438cbeaaba0f99e2944ceeb2e34fc8fa7955576296570575df046b81197"
+dependencies = [
+ "proc-macro2",
+ "quote 1.0.36",
+ "serde",
+ "serde_syn",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -508,6 +523,18 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
+]
+
+[[package]]
+name = "serde_syn"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e0ca8adcbd02c69d24859f7f0c54ede988e4509c8767c8a3185ec0eb158281c"
+dependencies = [
+ "bitflags 1.3.2",
+ "proc-macro2",
+ "serde",
+ "syn 1.0.109",
 ]
 
 [[package]]
