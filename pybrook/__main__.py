@@ -39,7 +39,7 @@ from loguru import logger
 from watchdog.events import DirModifiedEvent, FileModifiedEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
-from pybrook.consumers.base import BaseStreamConsumer, GearsStreamConsumer
+from pybrook.consumers.base import BaseStreamConsumer
 from pybrook.consumers.worker import ConsumerConfig
 from pybrook.models import PyBrook
 
@@ -83,17 +83,13 @@ def add_consumer_args(
     """
     workers_config = {}
     for c in consumers:
-        if not isinstance(c, GearsStreamConsumer):
-            consumer_config = ConsumerConfig()
-            try:
-                parser.add_argument(
-                    f'--{c.consumer_group_name}-workers',
-                    type=int,
-                    help='(default: %(default)s)',  # noqa: WPS323
-                    default=consumer_config.workers)
-            except argparse.ArgumentError:
-                ... # OK, this argument already exists
-            workers_config[c.consumer_group_name] = consumer_config
+        consumer_config = ConsumerConfig()
+        parser.add_argument(
+            f'--{c.consumer_group_name}-workers',
+            type=int,
+            help='(default: %(default)s)',  # noqa: WPS323
+            default=consumer_config.workers)
+        workers_config[c.consumer_group_name] = consumer_config
     return workers_config
 
 
@@ -154,7 +150,6 @@ def main():
 
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument('-h', '--help', action='store_true')
-    parser.add_argument('-rg', '--enable-gears', action='store_true')
     parser.add_argument('APP', nargs=1)
     args: argparse.Namespace
     unknown: List[str]
@@ -180,7 +175,7 @@ def main():
         observer = Observer()
         observer.schedule(handler, model_module.__file__)  # noqa: WPS609
         observer.start()
-        brook.run(config=workers_config, enable_gears=args.enable_gears)
+        brook.run(config=workers_config)
         observer.stop()
         observer.join()
         reload(model_module)

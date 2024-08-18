@@ -55,17 +55,10 @@ class LocationReport(OutReport):
 
 
 @brook.artificial_field()
-def direction(lat_history: Sequence[float] = historical_dependency(
-    ZTMReport.lat, history_length=1),
-              lon_history: Sequence[float] = historical_dependency(
-                  ZTMReport.lon, history_length=1),
+def direction(
               lat: float = dependency(ZTMReport.lat),
               lon: float = dependency(ZTMReport.lon)) -> Optional[float]:
-    prev_lat, = lat_history
-    prev_lon, = lon_history
-    if prev_lat and prev_lon:
-        return degrees(atan2(lon - prev_lon, lat - prev_lat))
-    return None
+    return lat + lon
 
 
 @brook.output('direction-report')

@@ -123,6 +123,7 @@ impl DependencyResolver {
         ),
       };
       dependency_redis_hmap.append(&mut dependency_map);
+      dependency_redis_hmap.insert(MSG_ID_FIELD.to_string(), message_id.clone());
       stream_add(ctx, self.output_stream_key.as_bytes(), &Value::from(dependency_redis_hmap));
       let key = ctx.open_key_writable(&deps_map_key);
       key.delete()
@@ -178,73 +179,43 @@ impl InputTagger {
       .ok_or(TaggerError::CouldNotParseId)?;
     message.insert(
       MSG_ID_FIELD.into(),
-      incr(
+      format!("{}:{}", object_id, incr(
         ctx,
         &redis_string(
           ctx,
           format!("__{}:{}:{}__", self.stream_key, object_id, MSG_ID_FIELD),
         ),
-      )
-        .into(),
+      )).into(),
     );
     Ok(())
   }
 }
 
 static PB_CONFIG: LazyLock<RwLock<BrookConfig>> = LazyLock::new(|| {
-  let mut taggers = HashMap::new();
-  taggers.insert(
-    String::from(":ztm-report"),
-    InputTagger {
-      stream_key: ":ztm-report".into(),
-      obj_id_field: "vehicle_number".into(),
-    },
-  );
-  let resolvers = vec![
-    DependencyResolver {
-      inputs: vec![Dependency {
-        stream_key: ":ztm-report".into(),
-        fields: vec![DependencyField::new("lat"), DependencyField::new("lon")],
-      }],
-      output_stream_key: ":direction-args".into(),
-    },
-    DependencyResolver {
-      output_stream_key: ":direction-report".into(),
-      inputs: vec![
-        Dependency {
-          stream_key: ":direction".into(),
-          fields: vec![DependencyField::new("result")],
-        },
-        Dependency {
-          stream_key: ":ztm-report".into(),
-          fields: vec![DependencyField::new("lat"), DependencyField::new("lon")],
-        },
-      ],
-    },
-  ]
-    .into_iter()
-    .map(|r| (r.output_stream_key.clone(), r))
-    .collect::<HashMap<String, DependencyResolver>>();
-
   let state = BrookConfig {
-    dependency_resolvers: resolvers,
-    input_taggers: taggers,
+    dependency_resolvers: HashMap::new(),
+    input_taggers: HashMap::new(),
   };
   RwLock::new(state)
 });
 
-static RESOLVER_MAP: LazyLock<
-  RwLock<HashMap<String, Vec<(DependencyResolver, Dependency)>>>,
-> = LazyLock::new(|| {
+fn gen_resolver_map() -> HashMap<String, Vec<(DependencyResolver, Dependency)>> {
   let state = PB_CONFIG.read().unwrap();
   let mut map = HashMap::new();
   for resolver in state.dependency_resolvers.values() {
     for (stream_key, dependency) in resolver.inputs.iter().map(|d| (d.stream_key.clone(), d)) {
       map.entry(stream_key)
-        .or_insert(Vec::new())
-        .push((resolver.clone(), dependency.clone()));
+          .or_insert(Vec::new())
+          .push((resolver.clone(), dependency.clone()));
     }
   }
+  map
+}
+
+static RESOLVER_MAP: LazyLock<
+  RwLock<HashMap<String, Vec<(DependencyResolver, Dependency)>>>,
+> = LazyLock::new(|| {
+  let map = gen_resolver_map();
   RwLock::new(map)
 });
 
@@ -291,23 +262,19 @@ fn stream_add(ctx: &Context, key_name: &[u8], message: &Value) {
   raw::close_key(key);
 }
 
-fn on_stream(ctx: &Context, _event_type: NotifyEvent, _event: &str, key: &'static [u8]) {
+fn on_stream(ctx: &Context, _event_type: NotifyEvent, event: &str, key: &'static [u8]) {
   // consider trimming the stream? better than logging the last ID, assuming that this is single threaded
+  if event != "xadd" {
+      return;
+  }
   let key_string = redis_string(ctx, key);
   let stream = ctx.open_key(&key_string);
 
   let state = PB_CONFIG.read().unwrap();
   let resolver_map = RESOLVER_MAP.read().unwrap();
-  // println!("HELLO");
   let stream_key_str = str::from_utf8(key.into()).expect("Only UTF-8 keys are supported!");
-  // println!("{stream_key_str} {state:?}");
-  // log_warning(format!("Stream: {stream_key_str}"));
+  // println!("LOLX {stream_key_str} {state:?} {_event_type:?} {_event:?}");
   let tagger = state.input_taggers.get(stream_key_str);
-  stream_add(
-    ctx,
-    format!("{stream_key_str}-test").as_bytes(),
-    &json!({"message": "none"}),
-  );
 
   // let stream_id = state.stream_read_ids.get(stream_key_str);
   let mut last_record_id = RedisModuleStreamID { ms: 0, seq: 0 };
@@ -380,6 +347,7 @@ fn set_config(_ctx: &Context, args: Vec<RedisString>) -> RedisResult {
   let string = args.get(1).ok_or(RedisError::WrongType)?.to_string();
   let cfg = serde_json::from_str::<BrookConfig>(&string)?;
   *config = cfg.clone();
+  log_warning(format!("{}", serde_json::to_string(&*config).unwrap()));
   Ok(RedisValue::Null)
 }
 
@@ -397,8 +365,6 @@ mod tests {
 }
 
 fn init(_ctx: &Context, _args: &[RedisString]) -> Status {
-  let config = PB_CONFIG.read().unwrap();
-  log_warning(format!("{}", serde_json::to_string(&*config).unwrap()));
   Status::Ok
 }
 

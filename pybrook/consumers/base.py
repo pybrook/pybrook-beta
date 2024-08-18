@@ -33,7 +33,6 @@ CONSUMER_NAME_LENGTH = 64
 
 
 class ConsumerImpl(Enum):
-    GEARS = 'GEARS'
     ASYNC = 'ASYNC'
     SYNC = 'SYNC'
 
@@ -254,12 +253,3 @@ class AsyncStreamConsumer(BaseStreamConsumer):
                 await p.execute()
             except aioredis.WatchError:  # pragma: nocover
                 await redis_conn.xack(stream, self.consumer_group_name, msg_id)
-
-
-class GearsStreamConsumer(BaseStreamConsumer):
-    @property
-    def supported_impl(self) -> Set[ConsumerImpl]:
-        return super().supported_impl | {ConsumerImpl.GEARS}
-
-    def register_builder(self, conn: redis.Redis):
-        raise NotImplementedError  # pragma: nocover

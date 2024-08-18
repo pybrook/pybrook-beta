@@ -30,9 +30,9 @@ from pybrook.config import DEFAULT_WORKERS
 from pybrook.consumers.base import (
     AsyncStreamConsumer,
     BaseStreamConsumer,
-    GearsStreamConsumer,
     SyncStreamConsumer,
 )
+from pybrook.redis_plugin_integration import BrookConfig
 
 DEFAULT_PROCESSES_NUM = multiprocessing.cpu_count()
 
@@ -99,17 +99,14 @@ class ConsumerConfig:
 class WorkerManager:
     def __init__(self,
                  consumers: Iterable[BaseStreamConsumer],
-                 config: Dict[str, ConsumerConfig] = None,
+                 redis_plugin_config: BrookConfig,
+                 consumer_config: Dict[str, ConsumerConfig] = None,
                  enable_gears: bool = True):
         self.consumers = consumers
-        self.config = config or {}
+        self.config = consumer_config or {}
         self.redis_urls: Set[str] = {c.redis_url for c in consumers}
-        self.gears_consumers: List[GearsStreamConsumer] = [
-            c for c in consumers if enable_gears and isinstance(c, GearsStreamConsumer)
-        ]
-        self.regular_consumers: List[BaseStreamConsumer] = [
-            c for c in consumers if not enable_gears or not isinstance(c, GearsStreamConsumer)
-        ]
+        self.redis_plugin_config: BrookConfig = redis_plugin_config
+        self.regular_consumers: List[BaseStreamConsumer] = list(consumers)
         self.processes: List[multiprocessing.Process] = []
         self._kill_on_terminate = False
 
@@ -132,24 +129,12 @@ class WorkerManager:
         self.spawn_workers()
 
         for redis_url in self.redis_urls:
-            redis_conn = redis.from_url(redis_url,
-                                        decode_responses=True,
-                                        encoding='utf-8')
-            if self.gears_consumers:
-                self.acquire_gears_registration_lock(redis_conn)
-                try:
-                    ids = [
-                        r[1]
-                        for r in redis_conn.execute_command('RG.DUMPREGISTRATIONS')
-                    ]
-                except redis.ResponseError:
-                    self.terminate()
-                    raise RuntimeError("This redis instance does not have the Redis Gears plugin loaded.")
-                for i in ids:
-                    redis_conn.execute_command('RG.UNREGISTER', i)
-                for consumer in self.gears_consumers:
-                    consumer.register_builder(redis_conn)
-                redis_conn.delete('RG.REGISTERLOCK')
+            redis_conn: redis.Redis = redis.from_url(redis_url,
+                                                     decode_responses=True,
+                                                     encoding='utf-8')
+            # TODO: REGISTER PYBROOK CONFIG HERE
+            redis_conn.execute_command("PB.SETCONFIG", self.redis_plugin_config.json())
+
         for proc in self.processes:
             try:
                 proc.join()
@@ -165,16 +150,3 @@ class WorkerManager:
             w = Worker(c)
             procs = w.run(processes_num=consumer_config.workers)
             self.processes.extend(procs)
-
-    def acquire_gears_registration_lock(self, redis_conn: redis.Redis):
-        with redis_conn.pipeline() as p:
-            p.watch('RG.REGISTERLOCK')
-            if p.exists('RG.REGISTERLOCK'):
-                self.terminate()
-                raise RuntimeError(
-                    'Try again later, RG registration is locked, possibly by another instance'
-                )
-            p.multi()
-            p.set('RG.REGISTERLOCK', '1')
-            p.expire('RG.REGISTERLOCK', 5)
-            p.execute(raise_on_error=True)

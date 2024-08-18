@@ -52,7 +52,6 @@ class BaseFieldGenerator(BaseStreamConsumer):
                  read_chunk_length: int = 200,
                  **kwargs):
         self.generator = generator
-        self.dependencies = dependencies
         self.field_name = field_name
         self.redis_deps = redis_deps or []
         self.output_stream_name = f'{SPECIAL_CHAR}{namespace}{SPECIAL_CHAR}{field_name}'

@@ -38,24 +38,25 @@ def timestamp_to_epoch(timestamp: str) -> int:
     return int(timestamp.split('-', maxsplit=1)[0])
 
 def calc_latency(in_stream, out_streams):
-    conn: redis.Redis = redis.from_url('redis://redis', decode_responses=1, encoding='utf-8')
+    conn: redis.Redis = redis.from_url('redis://localhost', decode_responses=1, encoding='utf-8')
     time_to_msg_id = {}
     stream_times = {}
     for stream in out_streams:
         stream_times[stream] = {}
         for timestamp, payload in conn.xrange(stream, '-', '+'):
             epoch = timestamp_to_epoch(timestamp)
-            msg_id = payload[':_msg_id']
+            msg_id = payload['@pb@msg_id']
             if 'time' in payload:
                 time_to_msg_id[payload['time']] = msg_id
             stream_times[stream][msg_id] = epoch
+    print(len(list(stream_times.values())[0]))
     deltas = defaultdict(dict)
     for timestamp, payload in conn.xrange(in_stream, '-', '+'):
         epoch = timestamp_to_epoch(timestamp)
         try:
-            msg_id = time_to_msg_id[payload['time']]
+            msg_id = payload['@pb@msg_id']
         except KeyError:
-            continue
+            raise ValueError(payload)
         for stream in out_streams:
             if msg_id in stream_times[stream]:
                 deltas[stream][msg_id] = stream_times[stream][msg_id] - epoch
@@ -71,4 +72,4 @@ def calc_latency(in_stream, out_streams):
 
 
 if __name__ == '__main__':
-    calc_latency(':ztm-report', [':location-report', ':brigade-report', ':direction-report'])
+    calc_latency(':location-report', [':location-report', ':brigade-report', ':direction-report'])

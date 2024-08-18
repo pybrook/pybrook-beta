@@ -44,7 +44,7 @@ from pathlib import Path
 from time import time
 from typing import (  # noqa: WPS235
     Any, AsyncIterator, Callable, Dict, Generic, List, Mapping, Optional,
-    Sequence, Type, TypeVar, Union, get_type_hints,
+    Sequence, Type, TypeVar, Union, get_type_hints, Iterable,
 )
 
 import redis.asyncio as aioredis
@@ -65,15 +65,14 @@ from pybrook.config import (
     WEBSOCKET_XREAD_COUNT,
 )
 from pybrook.consumers.base import BaseStreamConsumer
-from pybrook.consumers.dependency_resolver import DependencyResolver
 from pybrook.consumers.field_generator import (
     AsyncFieldGenerator,
     BaseFieldGenerator,
     SyncFieldGenerator,
 )
-from pybrook.consumers.splitter import Splitter
 from pybrook.consumers.worker import ConsumerConfig, WorkerManager
 from pybrook.encoding import decode_stream_message, encode_stream_message
+import pybrook.redis_plugin_integration as redis_plugin
 from pybrook.schemas import FieldInfo, PyBrookSchema, StreamInfo
 
 
@@ -176,6 +175,7 @@ def historical_dependency(src: DTYPE, history_length: int) -> Sequence[DTYPE]:
         but mypy is made to believe that it's a sequence containing items
         of type of the corresponding [SourceField][pybrook.models.SourceField].
     """
+    raise NotImplementedError("The Redis plugin does not support historical dependencies yet.")
     dep: Sequence[DTYPE]
     dep = HistoricalDependency(  # type: ignore
         src,  # type: ignore
@@ -302,7 +302,7 @@ class SourceField:
     @property  # type: ignore
     def stream_name(self) -> str:
         if self.source_obj:
-            return f'{SPECIAL_CHAR}{self.source_obj.pybrook_options.name}{SPECIAL_CHAR}split'
+            return f'{SPECIAL_CHAR}{self.source_obj.pybrook_options.name}'
         return f'{SPECIAL_CHAR}artificial{SPECIAL_CHAR}{self.field_name}'
 
     def __repr__(self):
@@ -410,15 +410,14 @@ class InReport(ConsumerGenerator,
                RouteGenerator,
                pydantic.BaseModel,
                metaclass=InReportMeta):
+
+
+
     @classmethod
     def gen_consumers(cls, model: 'PyBrook'):
-        splitter = Splitter(
-            redis_url=model.redis_url,
-            object_id_field=cls.pybrook_options.id_field,
-            consumer_group_name=f'{cls.pybrook_options.name}{SPECIAL_CHAR}sp',
-            namespace=cls.pybrook_options.name,
-            input_streams=[cls.pybrook_options.stream_name])
-        model.add_consumer(splitter)
+        model.add_input_tagger(redis_plugin.InputTagger(
+            stream_key=cls.pybrook_options.stream_name,
+            obj_id_field=cls.pybrook_options.id_field))
 
     @classmethod
     def gen_routes(cls, api: 'PyBrookApi', redis_dep: aioredis.Redis):
@@ -574,19 +573,21 @@ class OutReport(ConsumerGenerator, RouteGenerator, metaclass=OutReportMeta):
 
     @classmethod
     def gen_consumers(cls, model: 'PyBrook'):
-        dependency_resolver = DependencyResolver(
-            redis_url=model.redis_url,
-            output_stream_name=cls.pybrook_options.stream_name,
-            dependencies=[
-                DependencyResolver.Dep(
-                    src_stream=field.source_field.stream_name,
-                    src_key=field.source_field.field_name,
-                    dst_key=field.destination_field_name)
-                for field in cls._report_fields.values()
-            ],
-            resolver_name=cls.pybrook_options.name)
-        model.add_consumer(dependency_resolver)
+        inputs = {}
+        for field in cls._report_fields.values():
+            stream_key: str = field.source_field.stream_name
+            dep: redis_plugin.Dependency = inputs.setdefault(
+                stream_key,
+                redis_plugin.Dependency(stream_key=stream_key))
+            dep.fields.append(
+                redis_plugin.DependencyField(
+                    src=field.source_field.field_name,
+                    dst=field.destination_field_name))
 
+        model.add_dependency_resolver(redis_plugin.DependencyResolver(
+            output_stream_key=cls.pybrook_options.stream_name,
+            inputs=list(inputs.values())
+        ))
 
 class InputField(SourceField):
     def __init__(self, report_class: Type[InReport],
@@ -644,28 +645,24 @@ class ArtificialField(SourceField, Registrable, ConsumerGenerator):
             dep.on_registered(model)
 
     def gen_consumers(self, model: 'PyBrook'):  # type: ignore
-        dependency_resolver = DependencyResolver(
-            redis_url=model.redis_url,
-            output_stream_name=(f'{SPECIAL_CHAR}{self.field_name}'
-                                f'{SPECIAL_CHAR}deps'),
-            dependencies=[
-                DependencyResolver.Dep(src_stream=dep.src_field.stream_name,
-                                       src_key=dep.src_field.field_name,
-                                       dst_key=dep_key)
-                for dep_key, dep in self.regular_dependencies.items()
-                if dep.src_field
-            ],
-            historical_dependencies=[
-                DependencyResolver.HistoricalDep(
-                    src_stream=dep.src_field.stream_name,
-                    src_key=dep.src_field.field_name,
-                    dst_key=dep_key,
-                    history_length=dep.history_length)
-                for dep_key, dep in self.historical_dependencies.items()
-                if dep.src_field
-            ],
-            resolver_name=self.field_name)
-        model.add_consumer(dependency_resolver)
+        inputs = {}
+        for field_name, field in self.regular_dependencies.items():
+            stream_key: str = field.src_field.stream_name
+            dep: redis_plugin.Dependency = inputs.setdefault(
+                stream_key,
+                redis_plugin.Dependency(stream_key=stream_key))
+            dep.fields.append(
+                redis_plugin.DependencyField(
+                    src=field.src_field.field_name,
+                    dst=field_name))
+        arguments_stream_key = (f'{SPECIAL_CHAR}{self.field_name}'
+                                f'{SPECIAL_CHAR}args')
+        model.add_dependency_resolver(redis_plugin.DependencyResolver(
+            output_stream_key=arguments_stream_key,
+            inputs=list(inputs.values())
+        ))
+
+        # TODO: historical deps
 
         field_generator_deps = [
             BaseFieldGenerator.Dep(name=dep_name, value_type=dep.value_type)
@@ -678,7 +675,7 @@ class ArtificialField(SourceField, Registrable, ConsumerGenerator):
 
         field_generator = generator_class(
             redis_url=model.redis_url,
-            dependency_stream=dependency_resolver.output_stream_name,
+            dependency_stream=arguments_stream_key,
             field_name=self.field_name,
             generator=self.calculate,
             dependencies=field_generator_deps,
@@ -768,21 +765,28 @@ class PyBrook:
         self.redis_url: str = redis_url
         self.api: PyBrookApi = api_class(self)
         self.manager: Optional[WorkerManager] = None
+        self._redis_plugin_config: redis_plugin.BrookConfig = redis_plugin.BrookConfig()
 
     def process_model(self):
         if not self.consumers:
-            report_classes = chain(self.inputs.values(), self.outputs.values())
+            report_classes: Iterable[Type[ConsumerGenerator]] = [*self.inputs.values(), *self.outputs.values()]
             for report_class in report_classes:
-                self.visit(report_class)
+                report_class.gen_consumers(self)
             for field in self.artificial_fields.values():
-                self.visit(field)
+                field.gen_consumers(self)
+
+    def add_input_tagger(self, tagger: redis_plugin.InputTagger):
+        self._redis_plugin_config.input_taggers[tagger.stream_key] = tagger
+
+    def add_dependency_resolver(self, resolver: redis_plugin.DependencyResolver):
+        self._redis_plugin_config.dependency_resolvers[resolver.output_stream_key] = resolver
 
     @property
     def app(self) -> fastapi.FastAPI:
         self.process_model()
         return self.api.fastapi
 
-    def run(self, config: Dict[str, ConsumerConfig] = None, enable_gears: bool = False):
+    def run(self, config: Dict[str, ConsumerConfig] = None):
         """
         Runs the workers.
 
@@ -792,7 +796,8 @@ class PyBrook:
 
         config = config or {}
         self.process_model()
-        self.manager = WorkerManager(self.consumers, config=config, enable_gears=enable_gears)
+        self.manager = WorkerManager(self.consumers, consumer_config=config,
+                                     redis_plugin_config=self._redis_plugin_config)
         self.manager.run()
 
     def terminate(self):
@@ -866,10 +871,6 @@ class PyBrook:
             return field
 
         return wrapper
-
-    def visit(self, generator: ConsumerGenerator):
-        """Visit a consumer generator and let it generate consumers."""
-        generator.gen_consumers(self)
 
     def add_consumer(self, consumer: BaseStreamConsumer):
         """
