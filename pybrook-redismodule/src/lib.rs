@@ -138,7 +138,6 @@ impl DependencyResolver {
         dependency: &Dependency,
         message: &Map<String, Value>,
     ) -> Result<(), DependencyResolverError> {
-        // println!("{:?}", message);
 
         let message_id = message
             .get(MSG_ID_FIELD)
@@ -370,7 +369,6 @@ fn stream_add(ctx: &Context, key_name: &[u8], message: &Value) {
 }
 
 fn on_stream(ctx: &Context, _event_type: NotifyEvent, event: &str, key: &'static [u8]) {
-    // consider trimming the stream? better than logging the last ID, assuming that this is single threaded
     if event != "xadd" {
         return;
     }
@@ -380,10 +378,8 @@ fn on_stream(ctx: &Context, _event_type: NotifyEvent, event: &str, key: &'static
     let state = PB_CONFIG.read().unwrap();
     let resolver_map = RESOLVER_MAP.read().unwrap();
     let stream_key_str = str::from_utf8(key.into()).expect("Only UTF-8 keys are supported!");
-    // println!("LOLX {stream_key_str} {state:?} {_event_type:?} {_event:?}");
     let tagger = state.input_taggers.get(stream_key_str);
 
-    // let stream_id = state.stream_read_ids.get(stream_key_str);
     let mut last_record_id = RedisModuleStreamID { ms: 0, seq: 0 };
     for record in stream
         .get_stream_range_iterator(None, None, true, false)
@@ -403,7 +399,6 @@ fn on_stream(ctx: &Context, _event_type: NotifyEvent, event: &str, key: &'static
             message.insert(key, value);
         }
         last_record_id = record.id;
-        // println!("{}", serde_json::to_string(&message).unwrap());
         if let Some(input_tagger) = tagger {
             if let Err(e) = input_tagger.tag_message(ctx, &mut message) {
                 log_warning(format!(
@@ -411,7 +406,6 @@ fn on_stream(ctx: &Context, _event_type: NotifyEvent, event: &str, key: &'static
                 ));
                 continue;
             }
-            // log_warning(format!("WARNING: Tagged msg for stream {stream_key_str}"));
         }
         if let Some(dependency_resolvers) = resolver_map.get(stream_key_str) {
             for (resolver, dependency) in dependency_resolvers {
@@ -431,7 +425,6 @@ fn on_stream(ctx: &Context, _event_type: NotifyEvent, event: &str, key: &'static
             false,
         )
         .unwrap();
-    // state.stream_read_ids.insert(stream_key_str, last_record_id); // this should happen even if the function fails
 }
 
 #[command(
@@ -462,7 +455,6 @@ fn set_config(_ctx: &Context, args: Vec<RedisString>) -> RedisResult {
     Ok(RedisValue::Null)
 }
 
-//////////////////////////////////////////////////////
 #[cfg(test)]
 mod tests {
     use super::*;
