@@ -29,6 +29,7 @@ struct HistoricalDependencyField {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
 enum DependencyField {
     Regular(RegularDependencyField),
     Historical(HistoricalDependencyField),
@@ -119,6 +120,7 @@ struct BrookConfig {
 #[derive(Debug)]
 enum DependencyResolverError {
     MissingIdField,
+    MalformedIdField(String),
     HMGETError,
     KeyDropError,
 }
@@ -137,11 +139,17 @@ impl DependencyResolver {
         message: &Map<String, Value>,
     ) -> Result<(), DependencyResolverError> {
         // println!("{:?}", message);
+
         let message_id = message
             .get(MSG_ID_FIELD)
             .ok_or(DependencyResolverError::MissingIdField)?;
+        let message_id_string = match message_id {
+            Value::String(s) => { Some(s) }
+            _ => None
+        }.ok_or(DependencyResolverError::MalformedIdField("not a string".into()))?;
         let total_dependencies: i64 = self.inputs.len() as i64;
         let mut message_cloned = message.clone();
+
         let mut dependency_map = serde_json::Map::from_iter(
             dependency
                 .fields
@@ -161,7 +169,7 @@ impl DependencyResolver {
                 .collect::<HashMap<String, Value>>(),
         );
 
-        let deps_map_key = self.dep_maps_key(ctx, message_id);
+        let deps_map_key = self.dep_maps_key(ctx, message_id_string);
         let dcount_key = redis_string(
             ctx,
             format!("__{}:{}@pb@dcount__", self.output_stream_key, message_id),
@@ -194,6 +202,17 @@ impl DependencyResolver {
                         .collect::<HashMap<String, Value>>(),
                 ),
             };
+            for historical_field in dependency.fields.iter().filter_map(|f| match f {
+                DependencyField::Historical(h) => {Some(h)}
+                _ => {None}
+            }) {
+                let mut historical_values: Vec<Value> = vec![];
+                for i in 0..historical_field.history_len {
+                    let value = dependency_redis_hmap.remove(&historical_field.hmap_key(&i)).unwrap_or(Value::Null);
+                    historical_values.push(value);
+                }
+                dependency_redis_hmap.insert(historical_field.dst.clone(), Value::Array(historical_values));
+            }
             dependency_redis_hmap.append(&mut dependency_map);
             dependency_redis_hmap.insert(MSG_ID_FIELD.to_string(), message_id.clone());
             stream_add(ctx, self.output_stream_key.as_bytes(), &Value::from(dependency_redis_hmap));
@@ -213,18 +232,18 @@ impl DependencyResolver {
             }
         }
         if dependency.has_historical_fields {
-            let message_id_string = message_id.to_string();
-            let mut splitter = message_id_string.rsplitn(1,":");
-            let object_id = splitter.next().ok_or(DependencyResolverError::MissingIdField)?;
-            let message_id: u64 = splitter.next().ok_or(DependencyResolverError::MissingIdField)?.parse::<u64>().map_err(|_| DependencyResolverError::MissingIdField)?;
+
+            let mut splitter = message_id_string.rsplitn(2,":");
+            let message_id: u64 = splitter.next().ok_or(DependencyResolverError::MalformedIdField(message_id_string.clone()))?.parse::<u64>().map_err(|_| DependencyResolverError::MalformedIdField(message_id.to_string()))?;
+            let object_id = splitter.next().ok_or(DependencyResolverError::MalformedIdField(message_id_string.clone()))?;
             for field in dependency.fields.iter().filter_map(|f| match f {
                 DependencyField::Regular(_) => {None}
                 DependencyField::Historical(h) => {Some(h)}
             }) {
                 let mut future_obj_message_id = message_id.clone();
-                for id_in_deps in field.history_len..1 {
+                for id_in_deps in (0..field.history_len).rev() {
                     future_obj_message_id += 1;
-                    let key = ctx.open_key_writable(&self.dep_maps_key(ctx, format!("{object_id}{future_obj_message_id}")));
+                    let key = ctx.open_key_writable(&self.dep_maps_key(ctx, format!("{object_id}:{future_obj_message_id}")));
                     let value = message.get(&field.src).unwrap_or(&Value::Null);
                     key.hash_set(&field.hmap_key(&id_in_deps), redis_string(ctx, serde_json::to_string(&value).unwrap_or("null".into())));
                 }
@@ -436,9 +455,11 @@ fn set_config(_ctx: &Context, args: Vec<RedisString>) -> RedisResult {
     let string = args.get(1).ok_or(RedisError::WrongType)?.to_string();
     let cfg = serde_json::from_str::<BrookConfig>(&string)?;
     *config = cfg.clone();
+    drop(config);
     let mut resolver_map = RESOLVER_MAP.write()?;
+    println!("Resolver map write!");
     *resolver_map = gen_resolver_map();
-    log_warning(format!("{}", serde_json::to_string(&*config).unwrap()));
+    log_warning(format!("Stored config: {}", &string));
     Ok(RedisValue::Null)
 }
 

@@ -57,8 +57,9 @@ class LocationReport(OutReport):
 @brook.artificial_field()
 def direction(
               lat: float = dependency(ZTMReport.lat),
-              lon: float = dependency(ZTMReport.lon)) -> Optional[float]:
-    return lat + lon
+              lon: float = historical_dependency(ZTMReport.lon, history_length=2)) -> Optional[float]:
+    print(lat, lon)
+    return lat
 
 
 @brook.output('direction-report')

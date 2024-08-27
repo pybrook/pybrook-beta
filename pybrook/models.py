@@ -175,7 +175,6 @@ def historical_dependency(src: DTYPE, history_length: int) -> Sequence[DTYPE]:
         but mypy is made to believe that it's a sequence containing items
         of type of the corresponding [SourceField][pybrook.models.SourceField].
     """
-    raise NotImplementedError("The Redis plugin does not support historical dependencies yet.")
     dep: Sequence[DTYPE]
     dep = HistoricalDependency(  # type: ignore
         src,  # type: ignore
@@ -655,14 +654,22 @@ class ArtificialField(SourceField, Registrable, ConsumerGenerator):
                 redis_plugin.DependencyField(
                     src=field.src_field.field_name,
                     dst=field_name))
+        for field_name, field in self.historical_dependencies.items():
+            stream_key: str = field.src_field.stream_name
+            dep: redis_plugin.Dependency = inputs.setdefault(
+                stream_key,
+                redis_plugin.Dependency(stream_key=stream_key))
+            dep.fields.append(
+                redis_plugin.HistoricalDependencyField(
+                    src=field.src_field.field_name,
+                    dst=field_name,
+                    history_len=field.history_length))
         arguments_stream_key = (f'{SPECIAL_CHAR}{self.field_name}'
                                 f'{SPECIAL_CHAR}args')
         model.add_dependency_resolver(redis_plugin.DependencyResolver(
             output_stream_key=arguments_stream_key,
             inputs=list(inputs.values())
         ))
-
-        # TODO: historical deps
 
         field_generator_deps = [
             BaseFieldGenerator.Dep(name=dep_name, value_type=dep.value_type)

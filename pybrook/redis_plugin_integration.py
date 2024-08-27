@@ -1,13 +1,24 @@
+from typing import Literal
+
 from pydantic import BaseModel
 
 
 class DependencyField(BaseModel):
+    type: Literal["Regular"] = "Regular"
     src: str
     dst: str
 
+
+class HistoricalDependencyField(BaseModel):
+    type: Literal["Regular"] = "Historical"
+    src: str
+    dst: str
+    history_len: int
+
+
 class Dependency(BaseModel):
     stream_key: str
-    fields: list[DependencyField] = []
+    fields: list[DependencyField | HistoricalDependencyField] = []
 
 
 class DependencyResolver(BaseModel):
