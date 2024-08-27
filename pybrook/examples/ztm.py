@@ -54,9 +54,9 @@ class LocationReport(OutReport):
 
 
 @brook.artificial_field('direction')
-async def direction(lat_history: Sequence[float] = historical_dependency(
+async def direction(lat_history: Sequence[Optional[float]] = historical_dependency(
     ZTMReport.lat, history_length=1),
-                    lon_history: Sequence[float] = historical_dependency(
+                    lon_history: Sequence[Optional[float]] = historical_dependency(
                         ZTMReport.lon, history_length=1),
                     lat: float = dependency(ZTMReport.lat),
                     lon: float = dependency(ZTMReport.lon)) -> Optional[float]:
@@ -76,5 +76,6 @@ class DirectionReport(OutReport):
 
 brook.set_meta(latitude_field=LocationReport.lat,
                longitude_field=LocationReport.lon,
+               direction_field=DirectionReport.direction,
                group_field=LocationReport.line,
                time_field=LocationReport.time)

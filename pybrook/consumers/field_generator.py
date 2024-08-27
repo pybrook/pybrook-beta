@@ -22,6 +22,7 @@ from typing import Callable, Dict, List, Type, Union
 import redis.asyncio as aioredis
 import pydantic
 import redis
+from pydantic import ValidationError
 
 from pybrook.config import ARTIFICIAL_NAMESPACE, MSG_ID_FIELD, SPECIAL_CHAR
 from pybrook.consumers.base import (
@@ -91,8 +92,8 @@ class AsyncFieldGenerator(AsyncStreamConsumer, BaseFieldGenerator):
         message_id = message.pop(MSG_ID_FIELD)
         try:
             dependencies = self.dep_model(**message).dict()
-        except Exception:
-            raise ValueError(message)
+        except ValidationError as e:
+            raise e
         value = await self.call_generator(dependencies, redis_conn)
         return {
             self.output_stream_name:
@@ -112,8 +113,8 @@ class SyncFieldGenerator(SyncStreamConsumer, BaseFieldGenerator):
         message_id = message.pop(MSG_ID_FIELD)
         try:
             dependencies = self.dep_model(**message).dict()
-        except Exception:
-            raise ValueError(message)
+        except ValidationError as e:
+            raise e
         value = self.call_generator(dependencies, redis_conn)
         return {
             self.output_stream_name:

@@ -84,11 +84,14 @@ def add_consumer_args(
     workers_config = {}
     for c in consumers:
         consumer_config = ConsumerConfig()
-        parser.add_argument(
-            f'--{c.consumer_group_name}-workers',
-            type=int,
-            help='(default: %(default)s)',  # noqa: WPS323
-            default=consumer_config.workers)
+        try:
+            parser.add_argument(
+                f'--{c.consumer_group_name}-workers',
+                type=int,
+                help='(default: %(default)s)',  # noqa: WPS323
+                default=consumer_config.workers)
+        except argparse.ArgumentError:
+            ...
         workers_config[c.consumer_group_name] = consumer_config
     return workers_config
 

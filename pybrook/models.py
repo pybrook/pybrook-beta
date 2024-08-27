@@ -52,6 +52,7 @@ import fastapi
 import pydantic
 import redis
 from loguru import logger
+from pydantic import ValidationError
 from starlette.middleware.cors import CORSMiddleware
 from starlette.staticfiles import StaticFiles
 from websockets.exceptions import ConnectionClosedOK
@@ -558,6 +559,9 @@ class OutReport(ConsumerGenerator, RouteGenerator, metaclass=OutReportMeta):
                             active = False
                         except RuntimeError:
                             active = False
+                        except ValidationError as e:
+                            raise ValueError(model_cls.schema())
+
             try:
                 await websocket.close()
             except RuntimeError:

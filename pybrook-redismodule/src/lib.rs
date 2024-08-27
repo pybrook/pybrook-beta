@@ -147,7 +147,7 @@ impl DependencyResolver {
             Value::String(s) => { Some(s) }
             _ => None
         }.ok_or(DependencyResolverError::MalformedIdField("not a string".into()))?;
-        let total_dependencies: i64 = self.inputs.len() as i64;
+        let total_dependencies: i64 = self.inputs.iter().filter(|d| d.has_regular_fields).count() as i64;
         let mut message_cloned = message.clone();
 
         let mut dependency_map = serde_json::Map::from_iter(
@@ -172,7 +172,7 @@ impl DependencyResolver {
         let deps_map_key = self.dep_maps_key(ctx, message_id_string);
         let dcount_key = redis_string(
             ctx,
-            format!("__{}:{}@pb@dcount__", self.output_stream_key, message_id),
+            format!("__{}:{}@pb@dcount__", self.output_stream_key, message_id_string),
         );
         if dependency.has_regular_fields && incr(ctx, &dcount_key).eq(&total_dependencies) {
             let key = ctx.open_key(&deps_map_key);
@@ -202,7 +202,7 @@ impl DependencyResolver {
                         .collect::<HashMap<String, Value>>(),
                 ),
             };
-            for historical_field in dependency.fields.iter().filter_map(|f| match f {
+            for historical_field in self.inputs.iter().map(|f| &f.fields).flatten().filter_map(|f| match f {
                 DependencyField::Historical(h) => {Some(h)}
                 _ => {None}
             }) {
@@ -232,7 +232,6 @@ impl DependencyResolver {
             }
         }
         if dependency.has_historical_fields {
-
             let mut splitter = message_id_string.rsplitn(2,":");
             let message_id: u64 = splitter.next().ok_or(DependencyResolverError::MalformedIdField(message_id_string.clone()))?.parse::<u64>().map_err(|_| DependencyResolverError::MalformedIdField(message_id.to_string()))?;
             let object_id = splitter.next().ok_or(DependencyResolverError::MalformedIdField(message_id_string.clone()))?;
@@ -459,7 +458,7 @@ fn set_config(_ctx: &Context, args: Vec<RedisString>) -> RedisResult {
     let mut resolver_map = RESOLVER_MAP.write()?;
     println!("Resolver map write!");
     *resolver_map = gen_resolver_map();
-    log_warning(format!("Stored config: {}", &string));
+    println!("Stored config: {}", &string);
     Ok(RedisValue::Null)
 }
 
