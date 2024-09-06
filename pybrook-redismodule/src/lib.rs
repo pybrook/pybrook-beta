@@ -2,7 +2,6 @@ use redis_module::key::{HMGetResult};
 use redis_module::logging::log_warning;
 use redis_module::{raw, redis_module, Context, RedisModuleStreamID, NotifyEvent, RedisModule_StreamAdd, RedisResult, RedisString, RedisValue, Status, REDISMODULE_STREAM_ADD_AUTOID, RedisError};
 use serde::{Deserialize, Serialize};
-use serde_json::{json};
 use serde_json::{Map, Value};
 use std::collections::{HashMap};
 use std::fmt::Display;
@@ -36,25 +35,19 @@ enum DependencyField {
 }
 
 impl HistoricalDependencyField {
-    fn hmap_key(&self, n: &u8) -> String {
+    fn hmap_key(&self, n: u8) -> String {
         format!("{}:{}", self.dst, n)
     }
 }
 
 
 impl DependencyField {
-    fn new(name: &str) -> Self {
-        Self::Regular(RegularDependencyField{
-            src: String::from(name),
-            dst: String::from(name),
-        })
-    }
 
     fn dst_keys(&self) -> Vec<String> {
         match self {
             DependencyField::Regular(regular) => { vec![regular.dst.clone()] }
             DependencyField::Historical(historical) => {
-                (0.into()..historical.history_len).collect::<Vec<u8>>().iter().map(|i| historical.hmap_key(i)).collect()
+                (0..historical.history_len).collect::<Vec<u8>>().into_iter().map(|i| historical.hmap_key(i)).collect()
             }
         }
     }
@@ -83,16 +76,10 @@ impl From<DependencyBase> for Dependency {
         Self {
             stream_key: value.stream_key,
             has_historical_fields: value.fields.iter().any(|f| {
-                match f {
-                    DependencyField::Historical(_) => {true}
-                    _ => {false}
-                }
+                matches!(f, DependencyField::Historical(_))
             }),
             has_regular_fields: value.fields.iter().any(|f| {
-                match f {
-                    DependencyField::Regular(_) => {true}
-                    _ => {false}
-                }
+                matches!(f, DependencyField::Regular(_))
             }),
             fields: value.fields,
         }
@@ -120,6 +107,7 @@ struct BrookConfig {
 #[derive(Debug)]
 enum DependencyResolverError {
     MissingIdField,
+    #[allow(dead_code)]
     MalformedIdField(String),
     HMGETError,
     KeyDropError,
@@ -158,7 +146,7 @@ impl DependencyResolver {
                     match f {
                         DependencyField::Regular(regular) => {
                             Some((
-                                String::from(regular.dst),
+                                regular.dst,
                                 message_cloned.remove(&regular.src).unwrap_or(Value::Null),
                             ))
                         }
@@ -178,8 +166,7 @@ impl DependencyResolver {
             let fields: Vec<RedisString> = self
                 .inputs
                 .iter()
-                .map(|d| d.fields.iter().map(|f| f.dst_keys()).flatten().map(|key| redis_string(ctx, key)))
-                .flatten()
+                .flat_map(|d| d.fields.iter().flat_map(|f| f.dst_keys()).map(|key| redis_string(ctx, key)))
                 .collect();
 
             // note: hash_get_multi sends fields in 12-element chunks, because of varargs API limitations:
@@ -201,13 +188,13 @@ impl DependencyResolver {
                         .collect::<HashMap<String, Value>>(),
                 ),
             };
-            for historical_field in self.inputs.iter().map(|f| &f.fields).flatten().filter_map(|f| match f {
+            for historical_field in self.inputs.iter().flat_map(|f| &f.fields).filter_map(|f| match f {
                 DependencyField::Historical(h) => {Some(h)}
                 _ => {None}
             }) {
                 let mut historical_values: Vec<Value> = vec![];
                 for i in 0..historical_field.history_len {
-                    let value = dependency_redis_hmap.remove(&historical_field.hmap_key(&i)).unwrap_or(Value::Null);
+                    let value = dependency_redis_hmap.remove(&historical_field.hmap_key(i)).unwrap_or(Value::Null);
                     historical_values.push(value);
                 }
                 dependency_redis_hmap.insert(historical_field.dst.clone(), Value::Array(historical_values));
@@ -238,12 +225,12 @@ impl DependencyResolver {
                 DependencyField::Regular(_) => {None}
                 DependencyField::Historical(h) => {Some(h)}
             }) {
-                let mut future_obj_message_id = message_id.clone();
+                let mut future_obj_message_id = message_id;
                 for id_in_deps in (0..field.history_len).rev() {
                     future_obj_message_id += 1;
                     let key = ctx.open_key_writable(&self.dep_maps_key(ctx, format!("{object_id}:{future_obj_message_id}")));
                     let value = message.get(&field.src).unwrap_or(&Value::Null);
-                    key.hash_set(&field.hmap_key(&id_in_deps), redis_string(ctx, serde_json::to_string(&value).unwrap_or("null".into())));
+                    key.hash_set(&field.hmap_key(id_in_deps), redis_string(ctx, serde_json::to_string(&value).unwrap_or("null".into())));
                 }
             }
         }
@@ -258,11 +245,11 @@ enum TaggerError {
 }
 
 fn incr(ctx: &Context, key_redis_str: &RedisString) -> i64 {
-    let incr_key = ctx.open_key(&key_redis_str);
-    let value: i64 = String::from_utf8_lossy(incr_key.read().unwrap().unwrap_or(&[]).into())
+    let incr_key = ctx.open_key(key_redis_str);
+    let value: i64 = String::from_utf8_lossy(incr_key.read().unwrap().unwrap_or(&[]))
         .parse()
         .unwrap_or(0);
-    let incr_key_writable = ctx.open_key_writable(&key_redis_str);
+    let incr_key_writable = ctx.open_key_writable(key_redis_str);
     incr_key_writable.write(&(value + 1).to_string()).unwrap();
     value + 1
 }
@@ -318,6 +305,7 @@ fn gen_resolver_map() -> HashMap<String, Vec<(DependencyResolver, Dependency)>> 
     map
 }
 
+#[allow(clippy::type_complexity)]
 static RESOLVER_MAP: LazyLock<
     RwLock<HashMap<String, Vec<(DependencyResolver, Dependency)>>>,
 > = LazyLock::new(|| {
@@ -354,7 +342,7 @@ fn stream_add(ctx: &Context, key_name: &[u8], message: &Value) {
             key,
             REDISMODULE_STREAM_ADD_AUTOID as c_int,
             stream_message_id,
-            (&mut args).as_mut_ptr(),
+            args.as_mut_ptr(),
             (message_vector.len() as i64) / 2,
         )
     }
@@ -377,7 +365,7 @@ fn on_stream(ctx: &Context, _event_type: NotifyEvent, event: &str, key: &'static
 
     let state = PB_CONFIG.read().unwrap();
     let resolver_map = RESOLVER_MAP.read().unwrap();
-    let stream_key_str = str::from_utf8(key.into()).expect("Only UTF-8 keys are supported!");
+    let stream_key_str = str::from_utf8(key).expect("Only UTF-8 keys are supported!");
     let tagger = state.input_taggers.get(stream_key_str);
 
     let mut last_record_id = RedisModuleStreamID { ms: 0, seq: 0 };
@@ -410,7 +398,7 @@ fn on_stream(ctx: &Context, _event_type: NotifyEvent, event: &str, key: &'static
         if let Some(dependency_resolvers) = resolver_map.get(stream_key_str) {
             for (resolver, dependency) in dependency_resolvers {
                 resolver
-                    .process_message(ctx, &dependency, &message)
+                    .process_message(ctx, dependency, &message)
                     .unwrap();
             }
         }
