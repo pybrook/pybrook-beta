@@ -48,35 +48,32 @@ class Worker:
             return self._spawn_async(processes_num=processes_num)
         raise NotImplementedError(self._consumer)
 
-    def _spawn_sync(self,
-                    processes_num: int) -> Iterable[multiprocessing.Process]:
+    def _spawn_sync(self, processes_num: int) -> Iterable[multiprocessing.Process]:
         return self._spawn(
             target=self._consumer.run_sync,  # type: ignore
-            processes_num=processes_num)
+            processes_num=processes_num,
+        )
 
     def _async_wrapper(self):
         policy = uvloop.EventLoopPolicy()
         asyncio.set_event_loop_policy(policy)
         asyncio.set_event_loop(policy.new_event_loop())
         try:
-            asyncio.get_event_loop().run_until_complete(
-                self._consumer.run_async())
+            asyncio.get_event_loop().run_until_complete(self._consumer.run_async())
         except KeyboardInterrupt:
             ...
         except asyncio.CancelledError:
             ...  # This is fine, shouldn't break anything
 
-    def _spawn_async(self, *,
-                     processes_num: int) -> Iterable[multiprocessing.Process]:
-        return self._spawn(target=self._async_wrapper,
-                           processes_num=processes_num)
+    def _spawn_async(self, *, processes_num: int) -> Iterable[multiprocessing.Process]:
+        return self._spawn(target=self._async_wrapper, processes_num=processes_num)
 
     def _spawn(
-            self,
-            *,
-            target: Callable,
-            processes_num: int,
-            args: Tuple[Any, ...] = (),
+        self,
+        *,
+        target: Callable,
+        processes_num: int,
+        args: Tuple[Any, ...] = (),
     ) -> Iterable[multiprocessing.Process]:
         processes = []
         self._consumer.register_consumer()
@@ -86,7 +83,7 @@ class Worker:
             proc.start()
             processes.append(proc)
         logger.info(
-            f'Spawned {processes_num} processes for {type(self._consumer).__name__}'
+            f"Spawned {processes_num} processes for {type(self._consumer).__name__}"
         )
         return processes
 
@@ -97,11 +94,13 @@ class ConsumerConfig:
 
 
 class WorkerManager:
-    def __init__(self,
-                 consumers: Iterable[BaseStreamConsumer],
-                 redis_plugin_config: BrookConfig,
-                 consumer_config: Dict[str, ConsumerConfig] = None,
-                 enable_gears: bool = True):
+    def __init__(
+        self,
+        consumers: Iterable[BaseStreamConsumer],
+        redis_plugin_config: BrookConfig,
+        consumer_config: Dict[str, ConsumerConfig] = None,
+        enable_gears: bool = True,
+    ):
         self.consumers = consumers
         self.config = consumer_config or {}
         self.redis_urls: Set[str] = {c.redis_url for c in consumers}
@@ -122,16 +121,16 @@ class WorkerManager:
     @logger.catch()
     def run(self):
         if self.processes:
-            raise RuntimeError('Already running!')
+            raise RuntimeError("Already running!")
         signal.signal(signal.SIGINT, lambda *args: self.terminate)
         signal.signal(signal.SIGTERM, lambda *args: self.terminate)
 
         self.spawn_workers()
 
         for redis_url in self.redis_urls:
-            redis_conn: redis.Redis = redis.from_url(redis_url,
-                                                     decode_responses=True,
-                                                     encoding='utf-8')
+            redis_conn: redis.Redis = redis.from_url(
+                redis_url, decode_responses=True, encoding="utf-8"
+            )
             # TODO: REGISTER PYBROOK CONFIG HERE
             redis_conn.execute_command("PB.SETCONFIG", self.redis_plugin_config.json())
 
@@ -144,9 +143,8 @@ class WorkerManager:
 
     def spawn_workers(self):
         for c in self.regular_consumers:
-            consumer_config = self.config.get(c.consumer_group_name,
-                                              ConsumerConfig())
-            logger.info(f'Spawning worker for {c}...')
+            consumer_config = self.config.get(c.consumer_group_name, ConsumerConfig())
+            logger.info(f"Spawning worker for {c}...")
             w = Worker(c)
             procs = w.run(processes_num=consumer_config.workers)
             self.processes.extend(procs)

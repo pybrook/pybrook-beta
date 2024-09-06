@@ -32,7 +32,10 @@
 
 import multiprocessing
 import signal
+import subprocess
 import threading
+from pathlib import Path
+from time import sleep
 
 import redis.asyncio as aioredis
 import pytest
@@ -49,11 +52,29 @@ def mock_processes(monkeypatch):
 
 
 TEST_REDIS_URI = 'redis://localhost/'
+PROJECT_ROOT = Path(__file__).parent.parent.resolve()
+
+@pytest.fixture()
+def redis_server():
+    r = subprocess.Popen(['redis-server',
+                          '--save', '""',
+                          '--loadmodule', str(PROJECT_ROOT / "pybrook-redismodule/target/release/libpybrook_redis.so")])
+    c = redis.from_url(TEST_REDIS_URI, socket_connect_timeout = 1)
+    for i in range(10):
+        try:
+            c.ping()
+            break
+        except redis.exceptions.RedisError:
+            sleep(1)
+    sleep(1)
+    yield True
+    r.kill()
+    r.wait()
 
 
 @pytest.fixture
 @pytest.mark.asyncio
-async def redis_async():
+async def redis_async(redis_server):
     redis_async: aioredis.Redis = await aioredis.from_url(
         TEST_REDIS_URI, decode_responses=True)
     await redis_async.flushdb()
@@ -64,7 +85,7 @@ async def redis_async():
 
 
 @pytest.fixture
-def redis_sync():
+def redis_sync(redis_server):
     redis_sync: redis.Redis = redis.from_url(TEST_REDIS_URI,
                                              decode_responses=True)
     redis_sync.flushdb()
@@ -79,7 +100,7 @@ def limit_time(monkeypatch):
     state = {'active': True}
     monkeypatch.setattr(
         BaseStreamConsumer, 'active',
-        property(fget=lambda s: time() < t + 1 and state['active'],
+        property(fget=lambda s: (time() < t + 10) and state['active'],
                  fset=lambda s, v: None))
 
     def term(*args, **kwargs):

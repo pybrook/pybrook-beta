@@ -48,6 +48,7 @@ class ModelChangeEventHandler(FileSystemEventHandler):
     """
     Handles model hot-reloading.
     """
+
     def __init__(self, brook):
         """
 
@@ -63,14 +64,14 @@ class ModelChangeEventHandler(FileSystemEventHandler):
         Args:
             event: Event representing file/directory modification.
         """
-        logger.info('File change detected, reloading...')
+        logger.info("File change detected, reloading...")
         self.modified = True
         self.brook.terminate()
 
 
 def add_consumer_args(
-        parser: argparse.ArgumentParser,
-        consumers: List[BaseStreamConsumer]) -> Dict[str, ConsumerConfig]:
+    parser: argparse.ArgumentParser, consumers: List[BaseStreamConsumer]
+) -> Dict[str, ConsumerConfig]:
     """
 
     Args:
@@ -86,18 +87,20 @@ def add_consumer_args(
         consumer_config = ConsumerConfig()
         try:
             parser.add_argument(
-                f'--{c.consumer_group_name}-workers',
+                f"--{c.consumer_group_name}-workers",
                 type=int,
-                help='(default: %(default)s)',  # noqa: WPS323
-                default=consumer_config.workers)
+                help="(default: %(default)s)",  # noqa: WPS323
+                default=consumer_config.workers,
+            )
         except argparse.ArgumentError:
             ...
         workers_config[c.consumer_group_name] = consumer_config
     return workers_config
 
 
-def update_workers_config(args: argparse.Namespace,
-                          workers_config: Dict[str, ConsumerConfig]):
+def update_workers_config(
+    args: argparse.Namespace, workers_config: Dict[str, ConsumerConfig]
+):
     """
     Updates `workers_config` with settings loaded from argparse arguments.
 
@@ -109,8 +112,8 @@ def update_workers_config(args: argparse.Namespace,
 
     """
     for c in workers_config.keys():
-        for arg in ('workers', ):
-            arg_name: str = c.replace('-', '_') + '_' + arg
+        for arg in ("workers",):
+            arg_name: str = c.replace("-", "_") + "_" + arg
             setattr(workers_config[c], arg, getattr(args, arg_name))
 
 
@@ -152,21 +155,23 @@ def main():
     """
 
     parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument('-h', '--help', action='store_true')
-    parser.add_argument('APP', nargs=1)
+    parser.add_argument("-h", "--help", action="store_true")
+    parser.add_argument("APP", nargs=1)
     args: argparse.Namespace
     unknown: List[str]
     args, unknown = parser.parse_known_args()
-    app_arg = args.APP[-1].split(':') if args.APP else None
+    app_arg = args.APP[-1].split(":") if args.APP else None
     if not app_arg and args.help:
         parser.print_help()
         return
     model_module = import_module(app_arg[0])
     modified = True
     while modified:
-        brook: PyBrook = getattr(
-            model_module,
-            app_arg[1]) if len(app_arg) > 1 else model_module.brook
+        brook: PyBrook = (
+            getattr(model_module, app_arg[1])
+            if len(app_arg) > 1
+            else model_module.brook
+        )
         brook.process_model()
         workers_config = add_consumer_args(parser, brook.consumers)
         args = parser.parse_args()
@@ -185,5 +190,5 @@ def main():
         modified = handler.modified
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

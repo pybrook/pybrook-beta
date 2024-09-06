@@ -41,53 +41,60 @@ class BaseFieldGenerator(BaseStreamConsumer):
         name: str
         value_type: Type
 
-    def __init__(self,
-                 *,
-                 generator: Callable,
-                 redis_url: str,
-                 field_name: str,
-                 namespace: str = ARTIFICIAL_NAMESPACE,
-                 dependency_stream: str,
-                 dependencies: List[Dep],
-                 redis_deps: List[str] = None,
-                 read_chunk_length: int = 200,
-                 **kwargs):
+    def __init__(
+        self,
+        *,
+        generator: Callable,
+        redis_url: str,
+        field_name: str,
+        namespace: str = ARTIFICIAL_NAMESPACE,
+        dependency_stream: str,
+        dependencies: List[Dep],
+        redis_deps: List[str] = None,
+        read_chunk_length: int = 200,
+        **kwargs,
+    ):
         self.generator = generator
         self.field_name = field_name
         self.redis_deps = redis_deps or []
-        self.output_stream_name = f'{SPECIAL_CHAR}{namespace}{SPECIAL_CHAR}{field_name}'
+        self.output_stream_name = f"{SPECIAL_CHAR}{namespace}{SPECIAL_CHAR}{field_name}"
         pydantic_fields = {
-            dep.name: (dep.value_type, pydantic.Field())
-            for dep in dependencies
+            dep.name: (dep.value_type, pydantic.Field()) for dep in dependencies
         }
         self.dep_model: Type[pydantic.BaseModel] = pydantic.create_model(
-            field_name + 'Model',
-            **pydantic_fields  # type: ignore
+            field_name + "Model",
+            **pydantic_fields,  # type: ignore
         )
 
-        super().__init__(redis_url=redis_url,
-                         use_thread_executor=True,
-                         consumer_group_name=f'{field_name}{SPECIAL_CHAR}fg',
-                         input_streams=[dependency_stream],
-                         read_chunk_length=read_chunk_length,
-                         **kwargs)
+        super().__init__(
+            redis_url=redis_url,
+            use_thread_executor=True,
+            consumer_group_name=f"{field_name}{SPECIAL_CHAR}fg",
+            input_streams=[dependency_stream],
+            read_chunk_length=read_chunk_length,
+            **kwargs,
+        )
 
     def __repr__(self):
-        return f'<{self.__class__.__name__} input_streams={self.input_streams}>'
+        return f"<{self.__class__.__name__} input_streams={self.input_streams}>"
 
     def call_generator(self, dependencies, redis_conn: AnyRedis):
         if self.redis_deps:
-            return self.generator(**dependencies,
-                                  **{k: redis_conn
-                                     for k in self.redis_deps})
+            return self.generator(
+                **dependencies, **{k: redis_conn for k in self.redis_deps}
+            )
         return self.generator(**dependencies)
 
 
 class AsyncFieldGenerator(AsyncStreamConsumer, BaseFieldGenerator):
     async def process_message_async(
-            self, stream_name: str, message: Dict[str, str], *,
-            redis_conn: aioredis.Redis,
-            pipeline: aioredis.client.Pipeline) -> Dict[str, Dict[str, str]]:
+        self,
+        stream_name: str,
+        message: Dict[str, str],
+        *,
+        redis_conn: aioredis.Redis,
+        pipeline: aioredis.client.Pipeline,
+    ) -> Dict[str, Dict[str, str]]:
         message = decode_stream_message(message)
         message_id = message.pop(MSG_ID_FIELD)
         try:
@@ -96,19 +103,21 @@ class AsyncFieldGenerator(AsyncStreamConsumer, BaseFieldGenerator):
             raise e
         value = await self.call_generator(dependencies, redis_conn)
         return {
-            self.output_stream_name:
-            encode_stream_message({
-                MSG_ID_FIELD: message_id,
-                self.field_name: value
-            })
+            self.output_stream_name: encode_stream_message(
+                {MSG_ID_FIELD: message_id, self.field_name: value}
+            )
         }
 
 
 class SyncFieldGenerator(SyncStreamConsumer, BaseFieldGenerator):
     def process_message_sync(
-            self, stream_name: str, message: Dict[str, str], *,
-            redis_conn: redis.Redis,
-            pipeline: redis.client.Pipeline) -> Dict[str, Dict[str, str]]:
+        self,
+        stream_name: str,
+        message: Dict[str, str],
+        *,
+        redis_conn: redis.Redis,
+        pipeline: redis.client.Pipeline,
+    ) -> Dict[str, Dict[str, str]]:
         message = decode_stream_message(message)
         message_id = message.pop(MSG_ID_FIELD)
         try:
@@ -117,9 +126,7 @@ class SyncFieldGenerator(SyncStreamConsumer, BaseFieldGenerator):
             raise e
         value = self.call_generator(dependencies, redis_conn)
         return {
-            self.output_stream_name:
-            encode_stream_message({
-                MSG_ID_FIELD: message_id,
-                self.field_name: value
-            })
+            self.output_stream_name: encode_stream_message(
+                {MSG_ID_FIELD: message_id, self.field_name: value}
+            )
         }

@@ -29,11 +29,11 @@ from pybrook.models import (
     historical_dependency,
 )
 
-brook = PyBrook('redis://localhost')
+brook = PyBrook("redis://localhost")
 app = brook.app
 
 
-@brook.input('ztm-report', id_field='vehicle_number')
+@brook.input("ztm-report", id_field="vehicle_number")
 class ZTMReport(InReport):
     vehicle_number: int
     time: datetime
@@ -43,7 +43,7 @@ class ZTMReport(InReport):
     line: str
 
 
-@brook.output('location-report')
+@brook.output("location-report")
 class LocationReport(OutReport):
     vehicle_number = ReportField(ZTMReport.vehicle_number)
     lat = ReportField(ZTMReport.lat)
@@ -53,29 +53,35 @@ class LocationReport(OutReport):
     brigade = ReportField(ZTMReport.brigade)
 
 
-@brook.artificial_field('direction')
-async def direction(lat_history: Sequence[Optional[float]] = historical_dependency(
-    ZTMReport.lat, history_length=1),
-                    lon_history: Sequence[Optional[float]] = historical_dependency(
-                        ZTMReport.lon, history_length=1),
-                    lat: float = dependency(ZTMReport.lat),
-                    lon: float = dependency(ZTMReport.lon)) -> Optional[float]:
-    prev_lat, = lat_history
-    prev_lon, = lon_history
+@brook.artificial_field("direction")
+async def direction(
+    lat_history: Sequence[Optional[float]] = historical_dependency(
+        ZTMReport.lat, history_length=1
+    ),
+    lon_history: Sequence[Optional[float]] = historical_dependency(
+        ZTMReport.lon, history_length=1
+    ),
+    lat: float = dependency(ZTMReport.lat),
+    lon: float = dependency(ZTMReport.lon),
+) -> Optional[float]:
+    (prev_lat,) = lat_history
+    (prev_lon,) = lon_history
     if prev_lat and prev_lon:
         return degrees(atan2(lon - prev_lon, lat - prev_lat))
     return None
 
 
-@brook.output('direction-report')
+@brook.output("direction-report")
 class DirectionReport(OutReport):
     lat = ReportField(ZTMReport.lat)
     long = ReportField(ZTMReport.lon)
     direction = ReportField(direction)
 
 
-brook.set_meta(latitude_field=LocationReport.lat,
-               longitude_field=LocationReport.lon,
-               direction_field=DirectionReport.direction,
-               group_field=LocationReport.line,
-               time_field=LocationReport.time)
+brook.set_meta(
+    latitude_field=LocationReport.lat,
+    longitude_field=LocationReport.lon,
+    direction_field=DirectionReport.direction,
+    group_field=LocationReport.line,
+    time_field=LocationReport.time,
+)
