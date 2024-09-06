@@ -153,7 +153,6 @@ impl DependencyResolver {
                         DependencyField::Historical { .. } => { None }
                     }
                 })
-                .collect::<HashMap<String, Value>>(),
         );
 
         let deps_map_key = self.dep_maps_key(ctx, message_id_string);
