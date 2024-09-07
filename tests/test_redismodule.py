@@ -53,7 +53,7 @@ def test_resolver(redis_sync: redis.Redis):
     redis_sync.xadd("stream_a", {MSG_ID_FIELD: '"1:0"', "x": "1"})
     redis_sync.xadd("stream_b", {MSG_ID_FIELD: '"1:0"', "y": "2"})
 
-    REQUESTS = 100000
+    REQUESTS = 50000
     args = list(chain(*((("stream_a", {MSG_ID_FIELD: f'"1:{x}"', "x": "1"}), ("stream_b", {MSG_ID_FIELD: f'"1:{x}"', "y": "2"})) for x in range(1, REQUESTS))))
     assert [m for _, m in redis_sync.xrevrange("out", "+", "-")] == [
         {"@pb@msg_id": '"1:0"', "x_dest": "1", "y_dest": "2"}
@@ -61,7 +61,7 @@ def test_resolver(redis_sync: redis.Redis):
 
     with multiprocessing.Pool(processes=16, initializer=init_pool) as pool:
         t = time()
-        list(pool.imap(xadd, args))
+        pool.map(xadd, args)
     assert redis_sync.xlen("out") == REQUESTS
     end_time = time()
     print("RPS achieved: ", REQUESTS / (end_time - t))

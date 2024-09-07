@@ -75,11 +75,13 @@ def direction(
 @brook.output("direction-report")
 class DirectionReport(OutReport):
     direction = ReportField(direction)
+    time = ReportField(ZTMReport.time)
 
 
 @brook.output("brigade-report")
 class BrigadeReport(OutReport):
     brigade = ReportField(ZTMReport.brigade)
+    time = ReportField(ZTMReport.time)
 
 
 brook.set_meta(

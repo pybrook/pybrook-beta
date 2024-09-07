@@ -29,37 +29,22 @@
 #  You should have received a copy of the GNU General Public License
 #  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #
-
+import datetime
 from collections import defaultdict
 
 import redis
 
-def timestamp_to_epoch(timestamp: str) -> int:
-    return int(timestamp.split('-', maxsplit=1)[0])
+def parse_redis_timestamp(timestamp: str) -> datetime.datetime:
+    return datetime.datetime.fromtimestamp(int(timestamp.split('-', maxsplit=1)[0]) / 1000)
 
-def calc_latency(in_stream, out_streams):
+def calc_latency(out_streams):
     conn: redis.Redis = redis.from_url('redis://localhost', decode_responses=1, encoding='utf-8')
-    time_to_msg_id = {}
-    stream_times = {}
-    for stream in out_streams:
-        stream_times[stream] = {}
-        for timestamp, payload in conn.xrange(stream, '-', '+'):
-            epoch = timestamp_to_epoch(timestamp)
-            msg_id = payload['@pb@msg_id']
-            if 'time' in payload:
-                time_to_msg_id[payload['time']] = msg_id
-            stream_times[stream][msg_id] = epoch
-    print(len(list(stream_times.values())[0]))
+
     deltas = defaultdict(dict)
-    for timestamp, payload in conn.xrange(in_stream, '-', '+'):
-        epoch = timestamp_to_epoch(timestamp)
-        try:
+    for stream in out_streams:
+        for timestamp, payload in conn.xrange(stream, '-', '+'):
             msg_id = payload['@pb@msg_id']
-        except KeyError:
-            raise ValueError(payload)
-        for stream in out_streams:
-            if msg_id in stream_times[stream]:
-                deltas[stream][msg_id] = stream_times[stream][msg_id] - epoch
+            deltas[stream][msg_id] = (parse_redis_timestamp(timestamp) - datetime.datetime.fromisoformat(payload['time'].strip('"'))).total_seconds() * 1000
     deltas = dict(deltas)
     for stream in out_streams:
         print(stream)
@@ -72,4 +57,4 @@ def calc_latency(in_stream, out_streams):
 
 
 if __name__ == '__main__':
-    calc_latency(':location-report', [':location-report', ':brigade-report', ':direction-report'])
+    calc_latency([':location-report', ':brigade-report', ':direction-report'])
