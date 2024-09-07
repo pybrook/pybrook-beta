@@ -10,7 +10,7 @@ class DependencyField(BaseModel):
 
 
 class HistoricalDependencyField(BaseModel):
-    type: Literal["Regular"] = "Historical"
+    type: Literal["Historical"] = "Historical"
     src: str
     dst: str
     history_len: int

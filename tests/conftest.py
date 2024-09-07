@@ -47,19 +47,28 @@ from pybrook.consumers.worker import WorkerManager
 
 @pytest.fixture
 def mock_processes(monkeypatch):
-    monkeypatch.setattr(multiprocessing, 'Process', threading.Thread)
-    monkeypatch.setattr(signal, 'signal', lambda *args, **kwargs: None)
+    monkeypatch.setattr(multiprocessing, "Process", threading.Thread)
+    monkeypatch.setattr(signal, "signal", lambda *args, **kwargs: None)
 
 
-TEST_REDIS_URI = 'redis://localhost/'
+TEST_REDIS_URI = "redis://localhost/"
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
+
 
 @pytest.fixture()
 def redis_server():
-    r = subprocess.Popen(['redis-server',
-                          '--save', '""',
-                          '--loadmodule', str(PROJECT_ROOT / "pybrook-redismodule/target/release/libpybrook_redis.so")])
-    c = redis.from_url(TEST_REDIS_URI, socket_connect_timeout = 1)
+    r = subprocess.Popen(
+        [
+            "redis-server",
+            "--save",
+            '""',
+            "--loadmodule",
+            str(
+                PROJECT_ROOT / "pybrook-redismodule/target/release/libpybrook_redis.so"
+            ),
+        ]
+    )
+    c = redis.from_url(TEST_REDIS_URI, socket_connect_timeout=1)
     for i in range(10):
         try:
             c.ping()
@@ -76,7 +85,8 @@ def redis_server():
 @pytest.mark.asyncio
 async def redis_async(redis_server):
     redis_async: aioredis.Redis = await aioredis.from_url(
-        TEST_REDIS_URI, decode_responses=True)
+        TEST_REDIS_URI, decode_responses=True
+    )
     await redis_async.flushdb()
     yield redis_async
     await redis_async.flushdb()
@@ -86,8 +96,7 @@ async def redis_async(redis_server):
 
 @pytest.fixture
 def redis_sync(redis_server):
-    redis_sync: redis.Redis = redis.from_url(TEST_REDIS_URI,
-                                             decode_responses=True)
+    redis_sync: redis.Redis = redis.from_url(TEST_REDIS_URI, decode_responses=True)
     redis_sync.flushdb()
     yield redis_sync
     redis_sync.close()
@@ -96,16 +105,20 @@ def redis_sync(redis_server):
 @pytest.fixture
 def limit_time(monkeypatch):
     from time import time
+
     t = time()
-    state = {'active': True}
+    state = {"active": True}
     monkeypatch.setattr(
-        BaseStreamConsumer, 'active',
-        property(fget=lambda s: (time() < t + 10) and state['active'],
-                 fset=lambda s, v: None))
+        BaseStreamConsumer,
+        "active",
+        property(
+            fget=lambda s: (time() < t + 10) and state["active"], fset=lambda s, v: None
+        ),
+    )
 
     def term(*args, **kwargs):
-        state['active'] = False
+        state["active"] = False
 
-    monkeypatch.setattr(WorkerManager, 'terminate', term)
+    monkeypatch.setattr(WorkerManager, "terminate", term)
     yield state
-    state['active'] = False
+    state["active"] = False
