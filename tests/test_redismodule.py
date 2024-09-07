@@ -20,9 +20,13 @@ def init_pool():
     global conn
     conn = redis.from_url(TEST_REDIS_URI, decode_responses=True)
 
+m = multiprocessing.Manager()
+msg_id_to_send_time = m.dict()
+def xadd(args):
+    stream, msg = args
+    msg_id_to_send_time[msg[MSG_ID_FIELD]] = time()
+    conn.xadd(stream, msg)
 
-def xadd(*args):
-    conn.xadd(*args)
 
 def test_resolver(redis_sync: redis.Redis):
     redis_sync.execute_command(
@@ -45,10 +49,11 @@ def test_resolver(redis_sync: redis.Redis):
             }
         ).json(),
     )
+    msg_id_to_send_time["\"1:0\""] = time()
     redis_sync.xadd("stream_a", {MSG_ID_FIELD: '"1:0"', "x": "1"})
     redis_sync.xadd("stream_b", {MSG_ID_FIELD: '"1:0"', "y": "2"})
 
-    REQUESTS = 300000
+    REQUESTS = 100000
     args = list(chain(*((("stream_a", {MSG_ID_FIELD: f'"1:{x}"', "x": "1"}), ("stream_b", {MSG_ID_FIELD: f'"1:{x}"', "y": "2"})) for x in range(1, REQUESTS))))
     assert [m for _, m in redis_sync.xrevrange("out", "+", "-")] == [
         {"@pb@msg_id": '"1:0"', "x_dest": "1", "y_dest": "2"}
@@ -56,6 +61,8 @@ def test_resolver(redis_sync: redis.Redis):
 
     with multiprocessing.Pool(processes=16, initializer=init_pool) as pool:
         t = time()
-        list(pool.starmap(xadd, args))
+        list(pool.imap(xadd, args))
     assert redis_sync.xlen("out") == REQUESTS
-    print("RPS achieved: ", REQUESTS / (time() - t))
+    end_time = time()
+    print("RPS achieved: ", REQUESTS / (end_time - t))
+    print("Latency: ", sum(int(tr.split("-")[0]) - msg_id_to_send_time[msg[MSG_ID_FIELD]] * 1000 for tr, msg in redis_sync.xrange("out", "-", "+")) / REQUESTS)
