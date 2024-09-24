@@ -1,7 +1,6 @@
 [![PyPI](https://img.shields.io/pypi/v/pybrook?style=for-the-badge&color=purple)](https://pypi.org/project/pybrook/)
 [![docs](https://img.shields.io/badge/docs-mkdocs+mkdocstrings-lightblue?style=for-the-badge)](https://pybrook.github.io/pybrook/)
 ![Python](https://img.shields.io/badge/python-3.7%2B-blue?style=for-the-badge)
-![Coverage](https://img.shields.io/badge/coverage-81%25-green?style=for-the-badge)
 
 # Introduction
 
