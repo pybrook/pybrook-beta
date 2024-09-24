@@ -50,7 +50,7 @@ class VehicleReportUser(FastHttpUser):
 
     def on_start(self):
         self.line = lines.pop(0)
-        self.records: List[Tuple[datetime, dict]] = sorted(
+        self.records: list[Tuple[datetime, dict]] = sorted(
             [
                 (datetime.fromisoformat(v['time']), v)
                 for v in data[self.line]

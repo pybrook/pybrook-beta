@@ -35,7 +35,7 @@ import argparse
 from argparse import ArgumentError
 from contextlib import suppress
 from importlib import import_module, reload
-from typing import Dict, List, Union
+from typing import Union
 
 from loguru import logger
 from watchdog.events import DirModifiedEvent, FileModifiedEvent, FileSystemEventHandler
@@ -72,8 +72,8 @@ class ModelChangeEventHandler(FileSystemEventHandler):
 
 
 def add_consumer_args(
-    parser: argparse.ArgumentParser, consumers: List[BaseStreamConsumer]
-) -> Dict[str, ConsumerConfig]:
+    parser: argparse.ArgumentParser, consumers: list[BaseStreamConsumer]
+) -> dict[str, ConsumerConfig]:
     """
 
     Args:
@@ -100,7 +100,7 @@ def add_consumer_args(
 
 
 def update_workers_config(
-    args: argparse.Namespace, workers_config: Dict[str, ConsumerConfig]
+    args: argparse.Namespace, workers_config: dict[str, ConsumerConfig]
 ):
     """
     Updates `workers_config` with settings loaded from argparse arguments.
@@ -161,7 +161,7 @@ def main() -> None:
     parser.add_argument("-h", "--help", action="store_true")
     parser.add_argument("APP", nargs=1)
     args: argparse.Namespace
-    unknown: List[str]
+    unknown: list[str]
     args, unknown = parser.parse_known_args()
     app_arg = args.APP[-1].split(":") if args.APP else None
     if not app_arg and args.help:

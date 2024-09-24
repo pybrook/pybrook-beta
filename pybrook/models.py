@@ -39,20 +39,14 @@ import asyncio
 import dataclasses
 import inspect
 import signal
+from collections.abc import AsyncIterator, Iterable, Mapping, Sequence
 from pathlib import Path
 from time import time
 from typing import (  # noqa: WPS235
     Any,
-    AsyncIterator,
     Callable,
-    Dict,
     Generic,
-    Iterable,
-    List,
-    Mapping,
     Optional,
-    Sequence,
-    Type,
     TypeVar,
     Union,
     get_type_hints,
@@ -206,7 +200,7 @@ def historical_dependency(src: DTYPE, history_length: int) -> Sequence[DTYPE]:
     return dep  # noqa: WPS331
 
 
-DependencySource = Union["SourceField", Type[aioredis.Redis], Type[redis.Redis]]
+DependencySource = Union["SourceField", type[aioredis.Redis], type[redis.Redis]]
 
 
 class Dependency(Registrable):
@@ -243,10 +237,10 @@ class Dependency(Registrable):
         return self.src_field.value_type
 
     def validate_source_field(self, src: DependencySource):
-        self.is_aioredis = type(src) == type and issubclass(  # noqa: WPS516
+        self.is_aioredis = type(src) is type and issubclass(  # noqa: WPS516
             src, aioredis.Redis
         )
-        self.is_redis = type(src) == type and issubclass(  # noqa: WPS516
+        self.is_redis = type(src) is type and issubclass(  # noqa: WPS516
             src, redis.Redis
         )
         if isinstance(src, SourceField):
@@ -305,7 +299,7 @@ class HistoricalDependency(Dependency):
 
     @property
     def value_type(self):
-        return List[Union[self.src_field.value_type, None]]
+        return list[Union[self.src_field.value_type, None]]
 
     def validate_source_field(self, src: DependencySource):
         if isinstance(src, str):
@@ -323,7 +317,8 @@ class SourceField:
     """
 
     def __init__(
-        self, field_name: str, *, value_type: Type, source_obj: Optional[Type["InReport"]] = None
+        self, field_name: str, *, value_type: type,
+        source_obj: Optional[type["InReport"]] = None
     ):
         """
         Args:
@@ -332,8 +327,8 @@ class SourceField:
             source_obj: InReport that the field belongs to.
         """
         self.field_name: str = field_name
-        self.source_obj: Optional[Type[InReport]] = source_obj
-        self._value_type: Type = value_type
+        self.source_obj: Optional[type[InReport]] = source_obj
+        self._value_type: type = value_type
 
     @property
     def value_type(self):
@@ -364,7 +359,7 @@ class ReportField:
             raise RuntimeError(f"{source_field} is not a SourceField")
         self.destination_field_name: str
         self.source_field = source_field
-        self.owner: Type[OutReport]
+        self.owner: type[OutReport]
 
     def __repr__(self):
         return (
@@ -378,7 +373,7 @@ class ReportField:
     def destination_stream_name(self):
         return self.owner.stream_name
 
-    def set_context(self, owner: Type["OutReport"], name: str):
+    def set_context(self, owner: type["OutReport"], name: str):
         self.owner = owner
         self.destination_field_name = name
 
@@ -426,7 +421,7 @@ class OptionsMixin(Generic[TOPT]):
 
 class InReportMeta(OptionsMixin[InReportOptions], pydantic.main.ModelMetaclass):
     pybrook_options: InReportOptions
-    _input_fields: Dict[str, "InputField"]
+    _input_fields: dict[str, "InputField"]
 
     def __new__(mcs, name, bases, namespace):  # noqa: N804
         """
@@ -496,7 +491,7 @@ class OutReportOptions:
 
 class OutReportMeta(OptionsMixin[OutReportOptions], type):
     _report_fields: Mapping[str, "ReportField"]
-    _model: Type[pydantic.BaseModel]
+    _model: type[pydantic.BaseModel]
     pybrook_options: OutReportOptions
 
     def __new__(mcs, name, bases, namespace):  # noqa: N804
@@ -541,7 +536,7 @@ class OutReportMeta(OptionsMixin[OutReportOptions], type):
         return cls.pybrook_options.stream_name
 
     @property  # type: ignore
-    def pydantic_model(cls) -> Type[pydantic.BaseModel]:
+    def pydantic_model(cls) -> type[pydantic.BaseModel]:
         """
         A Pydantic model describing the output report.
         """
@@ -563,7 +558,7 @@ class OutReportMeta(OptionsMixin[OutReportOptions], type):
             ),
         )
         if not hasattr(cls, "_model"):
-            cls._model: Type[pydantic.BaseModel] = pydantic.create_model(
+            cls._model: type[pydantic.BaseModel] = pydantic.create_model(
                 cls.__name__ + "Model",
                 **pydantic_fields,  # type: ignore
             )
@@ -652,7 +647,7 @@ class OutReport(ConsumerGenerator, RouteGenerator, metaclass=OutReportMeta):
 
     @classmethod
     def gen_consumers(cls, model: "PyBrook"):
-        inputs: Dict[str, redis_plugin.Dependency] = {}
+        inputs: dict[str, redis_plugin.Dependency] = {}
         for field in cls._report_fields.values():
             stream_key: str = field.source_field.stream_name
             dep: redis_plugin.Dependency = inputs.setdefault(
@@ -674,7 +669,7 @@ class OutReport(ConsumerGenerator, RouteGenerator, metaclass=OutReportMeta):
 
 class InputField(SourceField):
     def __init__(
-        self, report_class: Type[InReport], pydantic_field: pydantic.fields.ModelField
+        self, report_class: type[InReport], pydantic_field: pydantic.fields.ModelField
     ):
         super().__init__(
             pydantic_field.name,
@@ -695,7 +690,7 @@ class ArtificialField(SourceField, Registrable, ConsumerGenerator):
         super().__init__(field_name=(name or calculate.__name__), value_type=value_type)
         self.args: inspect.Signature = inspect.signature(calculate)
         self.is_coro: bool = inspect.iscoroutinefunction(calculate)
-        self.dependencies: Dict[str, Dependency] = {
+        self.dependencies: dict[str, Dependency] = {
             arg_name: arg.default for arg_name, arg in self.args.parameters.items()
         }
         all_defaults_are_deps = all(
@@ -712,7 +707,7 @@ class ArtificialField(SourceField, Registrable, ConsumerGenerator):
         return self.calculate(*args, **kwargs)
 
     @property
-    def regular_dependencies(self) -> Dict[str, Dependency]:
+    def regular_dependencies(self) -> dict[str, Dependency]:
         return {
             k: d
             for k, d in self.dependencies.items()
@@ -720,7 +715,7 @@ class ArtificialField(SourceField, Registrable, ConsumerGenerator):
         }
 
     @property
-    def historical_dependencies(self) -> Dict[str, HistoricalDependency]:
+    def historical_dependencies(self) -> dict[str, HistoricalDependency]:
         return {
             k: d
             for k, d in self.dependencies.items()
@@ -732,7 +727,7 @@ class ArtificialField(SourceField, Registrable, ConsumerGenerator):
             dep.on_registered(model)
 
     def gen_consumers(self, model: "PyBrook"):  # type: ignore
-        inputs: Dict[str, redis_plugin.Dependency] = {}
+        inputs: dict[str, redis_plugin.Dependency] = {}
         stream_key: str
         dep: redis_plugin.Dependency
         for field_name, field in self.regular_dependencies.items():
@@ -770,7 +765,7 @@ class ArtificialField(SourceField, Registrable, ConsumerGenerator):
             if dep.src_field
         ]
 
-        generator_class: Type[BaseFieldGenerator] = (
+        generator_class: type[BaseFieldGenerator] = (
             AsyncFieldGenerator if self.is_coro else SyncFieldGenerator
         )
 
@@ -790,9 +785,9 @@ class ArtificialField(SourceField, Registrable, ConsumerGenerator):
         model.add_consumer(field_generator)
 
 
-TI = TypeVar("TI", bound=Type[InReport])
+TI = TypeVar("TI", bound=type[InReport])
 
-TO = TypeVar("TO", bound=Type[OutReport])
+TO = TypeVar("TO", bound=type[OutReport])
 
 
 class PyBrookApi:
@@ -858,7 +853,7 @@ class PyBrookApi:
 class PyBrook:
     """This class represents a PyBrook model."""
 
-    def __init__(self, redis_url: str, api_class: Type[PyBrookApi] = PyBrookApi):
+    def __init__(self, redis_url: str, api_class: type[PyBrookApi] = PyBrookApi):
         """
         Args:
             redis_url: Url of the Redis Gears server.
@@ -866,10 +861,10 @@ class PyBrook:
              [PyBrookApi][pybrook.models.PyBrookApi]
              to modify the generated FastAPI app.
         """
-        self.inputs: Dict[str, Type[InReport]] = {}
-        self.outputs: Dict[str, Type[OutReport]] = {}
-        self.artificial_fields: Dict[str, ArtificialField] = {}
-        self.consumers: List[BaseStreamConsumer] = []
+        self.inputs: dict[str, type[InReport]] = {}
+        self.outputs: dict[str, type[OutReport]] = {}
+        self.artificial_fields: dict[str, ArtificialField] = {}
+        self.consumers: list[BaseStreamConsumer] = []
         self.redis_url: str = redis_url
         self.api: PyBrookApi = api_class(self)
         self.manager: Optional[WorkerManager] = None
@@ -877,7 +872,7 @@ class PyBrook:
 
     def process_model(self) -> None:
         if not self.consumers:
-            report_classes: Iterable[Type[ConsumerGenerator]] = [
+            report_classes: Iterable[type[ConsumerGenerator]] = [
                 *self.inputs.values(),
                 *self.outputs.values(),
             ]
@@ -899,7 +894,7 @@ class PyBrook:
         self.process_model()
         return self.api.fastapi
 
-    def run(self, config: Optional[Dict[str, ConsumerConfig]] = None):
+    def run(self, config: Optional[dict[str, ConsumerConfig]] = None):
         """
         Runs the workers.
 

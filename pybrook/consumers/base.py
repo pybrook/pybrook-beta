@@ -21,9 +21,10 @@ import re
 import secrets
 import signal
 import sys
+from collections.abc import Iterable, MutableMapping
 from concurrent import futures
 from enum import Enum
-from typing import Dict, Iterable, MutableMapping, Set, Tuple, Union
+from typing import Union
 
 import redis
 import redis.asyncio as aioredis
@@ -60,18 +61,18 @@ class BaseStreamConsumer:
         self.read_messages_since = str(read_messages_since)
 
     @property
-    def supported_impl(self) -> Set[ConsumerImpl]:
+    def supported_impl(self) -> set[ConsumerImpl]:
         return set()  # pragma: nocover
 
     def __repr__(self):
         return f"<{self.__class__.__name__} input_streams={self.input_streams}>"
 
     @property
-    def input_streams(self) -> Tuple[str, ...]:
+    def input_streams(self) -> tuple[str, ...]:
         return tuple(self._input_streams)
 
     @input_streams.setter
-    def input_streams(self, streams: Tuple[str, ...]):
+    def input_streams(self, streams: tuple[str, ...]):
         self._input_streams = tuple(streams)
 
     def register_consumer(self):
@@ -125,18 +126,18 @@ class SyncStreamConsumer(BaseStreamConsumer):
     def process_message_sync(
         self,
         stream_name: str,
-        message: Dict[str, str],
+        message: dict[str, str],
         *,
         redis_conn: redis.Redis,
         pipeline: redis.client.Pipeline,
-    ) -> Dict[str, Dict[str, str]]:
+    ) -> dict[str, dict[str, str]]:
         raise NotImplementedError(  # pragma: nocover
             f"Sync version of process_message"
             f" for {type(self).__name__} not implemented."
         )
 
     @property
-    def supported_impl(self) -> Set[ConsumerImpl]:
+    def supported_impl(self) -> set[ConsumerImpl]:
         return super().supported_impl | {ConsumerImpl.SYNC}
 
     def stop(self, signum=None, frame=None):
@@ -160,7 +161,7 @@ class SyncStreamConsumer(BaseStreamConsumer):
             self.executor = futures.ThreadPoolExecutor(
                 max_workers=self._read_chunk_length
             )  # TODO: Parametrize max_workers
-        tasks: Set[futures.Future] = set()
+        tasks: set[futures.Future] = set()
         while self.active:
             response = redis_conn.xreadgroup(**xreadgroup_params)
             for stream, messages in response:
@@ -191,7 +192,7 @@ class SyncStreamConsumer(BaseStreamConsumer):
         redis_conn.close()
 
     def _handle_message_sync(
-        self, stream: str, msg_id: str, payload: Dict[str, str], redis_conn: redis.Redis
+        self, stream: str, msg_id: str, payload: dict[str, str], redis_conn: redis.Redis
     ):
         with redis_conn.pipeline() as p:
             result = self.process_message_sync(
@@ -210,18 +211,18 @@ class AsyncStreamConsumer(BaseStreamConsumer):
     async def process_message_async(
         self,
         stream_name: str,
-        message: Dict[str, str],
+        message: dict[str, str],
         *,
         redis_conn: aioredis.Redis,
         pipeline: aioredis.client.Pipeline,
-    ) -> Dict[str, Dict[str, str]]:
+    ) -> dict[str, dict[str, str]]:
         raise NotImplementedError(  # pragma: nocover
             f"Async version of process_message "
             f"for {type(self).__name__} not implemented."
         )
 
     @property
-    def supported_impl(self) -> Set[ConsumerImpl]:
+    def supported_impl(self) -> set[ConsumerImpl]:
         return super().supported_impl | {ConsumerImpl.ASYNC}
 
     def stop(self, signum=None, frame=None):
@@ -238,7 +239,7 @@ class AsyncStreamConsumer(BaseStreamConsumer):
         )
         self.active = True
         xreadgroup_params = self._xreadgroup_params
-        tasks: Set[asyncio.Future] = set()
+        tasks: set[asyncio.Future] = set()
         while self.active:
             response = await redis_conn.xreadgroup(**xreadgroup_params)
             for stream, messages in response:
@@ -264,7 +265,7 @@ class AsyncStreamConsumer(BaseStreamConsumer):
         self,
         stream: str,
         msg_id: str,
-        payload: Dict[str, str],
+        payload: dict[str, str],
         redis_conn: aioredis.Redis,
     ):
         async with redis_conn.pipeline() as p:

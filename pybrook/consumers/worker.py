@@ -20,8 +20,9 @@ import asyncio
 import dataclasses
 import multiprocessing
 import signal
+from collections.abc import Iterable
 from contextlib import suppress
-from typing import Any, Callable, Dict, Iterable, List, Set, Tuple, Optional
+from typing import Any, Callable, Optional
 
 import redis
 import uvloop
@@ -74,7 +75,7 @@ class Worker:
         *,
         target: Callable,
         processes_num: int,
-        args: Tuple[Any, ...] = (),
+        args: tuple[Any, ...] = (),
     ) -> Iterable[multiprocessing.Process]:
         processes = []
         self._consumer.register_consumer()
@@ -99,15 +100,15 @@ class WorkerManager:
         self,
         consumers: Iterable[BaseStreamConsumer],
         redis_plugin_config: BrookConfig,
-        consumer_config: Optional[Dict[str, ConsumerConfig]] = None,
+        consumer_config: Optional[dict[str, ConsumerConfig]] = None,
         enable_gears: bool = True,
     ):
         self.consumers = consumers
         self.config = consumer_config or {}
-        self.redis_urls: Set[str] = {c.redis_url for c in consumers}
+        self.redis_urls: set[str] = {c.redis_url for c in consumers}
         self.redis_plugin_config: BrookConfig = redis_plugin_config
-        self.regular_consumers: List[BaseStreamConsumer] = list(consumers)
-        self.processes: List[multiprocessing.Process] = []
+        self.regular_consumers: list[BaseStreamConsumer] = list(consumers)
+        self.processes: list[multiprocessing.Process] = []
         self._kill_on_terminate = False
 
     def terminate(self):
