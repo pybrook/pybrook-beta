@@ -14,9 +14,12 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v2
       - uses: pdm-project/setup-pdm@v4
       - name: Install development dependencies
         run: pdm install --dev
+      - run: git config user.name 'github-actions[bot]' && git config user.email 'github-actions[bot]@users.noreply.github.com'
       - name: Publish docs
         run: pdm run mkdocs gh-deploy
