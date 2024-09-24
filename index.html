@@ -1201,7 +1201,7 @@ You can simply add it to the default <code>docker-compose.yml</code>:</p>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8089:8089</span>
 <span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">locust -H http://api:8000</span>
 <span class="w">  </span><span class="nt">redis</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">redislabs/redisgears:1.0.9</span>
+<span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pybrook/redis:latest</span>
 </code></pre></div></td></tr></table></div>
 <p>Then run <code>docker-compose up --build</code> again, to start PyBrook - this time using your own model.</p>
 <h2 id="setup-development">Setup &amp; Development<a class="headerlink" href="#setup-development" title="Permanent link">&para;</a></h2>
@@ -1210,12 +1210,12 @@ You can simply add it to the default <code>docker-compose.yml</code>:</p>
 </code></pre></div>
 <h2 id="running-all-services-manually-without-docker">Running all services manually, without Docker<a class="headerlink" href="#running-all-services-manually-without-docker" title="Permanent link">&para;</a></h2>
 <p>To run the <code>pybrook.examples.demo</code> model, you have to start all the required services manually:</p>
-<div class="highlight"><pre><span></span><code><span class="c1"># Redis + Redis Gears</span>
-docker<span class="w"> </span>run<span class="w"> </span>--net<span class="o">=</span>host<span class="w"> </span>-d<span class="w"> </span>redislabs/redisgears:1.0.9
+<div class="highlight"><pre><span></span><code><span class="c1"># Redis + the PyBrook Redis module</span>
+docker<span class="w"> </span>run<span class="w"> </span>--net<span class="o">=</span>host<span class="w"> </span>-d<span class="w"> </span>pybrook/redis:latest
 <span class="c1"># HTTP API based on pybrook.examples.demo - uvicorn</span>
 uvicorn<span class="w"> </span>pybrook.examples.demo:app<span class="w"> </span>--reload<span class="w">  </span>
 <span class="c1"># PyBrook workers based on pybrook.examples.demo </span>
-pybrook<span class="w"> </span>pybrook.examples.demo:brook<span class="w"> </span>-rg<span class="w"> </span>
+pybrook<span class="w"> </span>pybrook.examples.demo:brook<span class="w"> </span>
 <span class="c1"># Locust - load testing</span>
 locust<span class="w"> </span>-H<span class="w"> </span>http://localhost:8000
 </code></pre></div>
