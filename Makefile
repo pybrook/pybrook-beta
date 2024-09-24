@@ -4,22 +4,17 @@ format:
 
 .PHONY: lint
 lint:
-	-poetry run mypy --config-file pyproject.toml $(shell pwd)/pybrook
-	-poetry run flake8 $(shell pwd)/pybrook
+	-pdm run mypy --config-file pyproject.toml $(shell pwd)/pybrook
+	-pdm run ruff check $(shell pwd)/pybrook
 
 .PHONY: test
 test:
-	poetry run pytest --cov=./pybrook -vvv --cov-report html
+	pdm run pytest --cov=./pybrook -vvv --cov-report html
 
 .PHONY: build_docs
 build_docs:
-	poetry run mkdocs build
+	pdm run mkdocs build
 
 .PHONY: serve_docs
 serve_docs:
-	poetry run mkdocs serve
-
-.PHONY: thesis
-thesis:
-	$(MAKE) -C $@
-	evince thesis/thesis.pdf
+	pdm run mkdocs serve

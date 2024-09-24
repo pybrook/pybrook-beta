@@ -161,7 +161,7 @@ services:
       - 8089:8089
     command: locust -H http://api:8000
   redis:
-    image: redislabs/redisgears:1.0.9
+    image: pybrook/redis:latest
 ```
 
 Then run `docker-compose up --build` again, to start PyBrook - this time using your own model.
@@ -179,12 +179,12 @@ pip install pybrook
 To run the `pybrook.examples.demo` model, you have to start all the required services manually:
 
 ```bash
-# Redis + Redis Gears
-docker run --net=host -d redislabs/redisgears:1.0.9
+# Redis + the PyBrook Redis module
+docker run --net=host -d pybrook/redis:latest
 # HTTP API based on pybrook.examples.demo - uvicorn
 uvicorn pybrook.examples.demo:app --reload  
 # PyBrook workers based on pybrook.examples.demo 
-pybrook pybrook.examples.demo:brook -rg 
+pybrook pybrook.examples.demo:brook 
 # Locust - load testing
 locust -H http://localhost:8000
 ```
