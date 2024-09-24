@@ -16,4 +16,4 @@ jobs:
       - name: Install development dependencies
         run: pdm install -G docs
       - name: Publish docs
-        run: poetry run mkdocs gh-deploy
+        run: pdm run mkdocs gh-deploy
