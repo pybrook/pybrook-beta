@@ -15,10 +15,10 @@ A simple `docker-compose up` is enough to start playing with the framework.
 
 ## Run demo with Docker
 
-It is recommended to use `docker-compose` for learning (you can use the `docker-compose.yml` from the [project repository](https://github.com/pybrook/pybrook/blob/master/docker-compose.yml):
+It is recommended to use `docker compose` for learning (you can use the `docker-compose.yml` from the [project repository](https://github.com/pybrook/pybrook/blob/master/docker-compose.yml):
 
 ```bash
-docker-compose up
+docker compose up
 ```
 
 This command will start all the services, including Redis with Redis Gears enabled.
