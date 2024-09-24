@@ -49,7 +49,7 @@ class ModelChangeEventHandler(FileSystemEventHandler):
     Handles model hot-reloading.
     """
 
-    def __init__(self, brook):
+    def __init__(self, brook: PyBrook):
         """
 
         Args:

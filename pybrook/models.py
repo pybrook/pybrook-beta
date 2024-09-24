@@ -824,8 +824,7 @@ class PyBrook:
         """
         Args:
             redis_url: Url of the Redis Gears server.
-            api_class: API class - you can pass your own implementation of
-            [PyBrookApi][pybrook.models.PyBrookApi] to modify the generated FastAPI app.
+            api_class: API class - you can pass your own implementation of [PyBrookApi][pybrook.models.PyBrookApi] to modify the generated FastAPI app.
         """
         self.inputs: Dict[str, Type[InReport]] = {}
         self.outputs: Dict[str, Type[OutReport]] = {}
