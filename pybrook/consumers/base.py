@@ -25,8 +25,8 @@ from concurrent import futures
 from enum import Enum
 from typing import Dict, Iterable, MutableMapping, Set, Tuple, Union
 
-import redis.asyncio as aioredis
 import redis
+import redis.asyncio as aioredis
 from loguru import logger
 
 CONSUMER_NAME_LENGTH = 64
@@ -131,7 +131,8 @@ class SyncStreamConsumer(BaseStreamConsumer):
         pipeline: redis.client.Pipeline,
     ) -> Dict[str, Dict[str, str]]:
         raise NotImplementedError(  # pragma: nocover
-            f"Sync version of process_message for {type(self).__name__} not implemented."
+            f"Sync version of process_message"
+            f" for {type(self).__name__} not implemented."
         )
 
     @property
@@ -148,7 +149,7 @@ class SyncStreamConsumer(BaseStreamConsumer):
                 "Waiting for all futures to finish, use Ctrl + C to force exit."
             )
 
-    def run_sync(self):  # noqa: WPS231
+    def run_sync(self) -> None:  # noqa: WPS231
         self.register_signals()
         redis_conn: redis.Redis = redis.from_url(
             self.redis_url, encoding="utf-8", decode_responses=True
@@ -166,7 +167,7 @@ class SyncStreamConsumer(BaseStreamConsumer):
                 for msg_id, payload in messages:
                     if self._use_thread_executor:
                         tasks.add(
-                            self.executor.submit(
+                            self.executor.submit( # type: ignore[union-attr]
                                 self._handle_message_sync,
                                 stream,
                                 msg_id,
@@ -215,7 +216,8 @@ class AsyncStreamConsumer(BaseStreamConsumer):
         pipeline: aioredis.client.Pipeline,
     ) -> Dict[str, Dict[str, str]]:
         raise NotImplementedError(  # pragma: nocover
-            f"Async version of process_message for {type(self).__name__} not implemented."
+            f"Async version of process_message "
+            f"for {type(self).__name__} not implemented."
         )
 
     @property
@@ -229,7 +231,7 @@ class AsyncStreamConsumer(BaseStreamConsumer):
                 "Waiting for all asyncio tasks to finish, use Ctrl + C to force exit."
             )
 
-    async def run_async(self):  # noqa: WPS231
+    async def run_async(self) -> None:  # noqa: WPS231
         self.register_signals()
         redis_conn: aioredis.Redis = await aioredis.from_url(
             self.redis_url, encoding="utf-8", decode_responses=True

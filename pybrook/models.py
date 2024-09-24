@@ -47,6 +47,7 @@ from typing import (  # noqa: WPS235
     Callable,
     Dict,
     Generic,
+    Iterable,
     List,
     Mapping,
     Optional,
@@ -55,19 +56,19 @@ from typing import (  # noqa: WPS235
     TypeVar,
     Union,
     get_type_hints,
-    Iterable,
 )
 
-import redis.asyncio as aioredis
 import fastapi
 import pydantic
 import redis
+import redis.asyncio as aioredis
 from loguru import logger
 from pydantic import ValidationError
 from starlette.middleware.cors import CORSMiddleware
 from starlette.staticfiles import StaticFiles
 from websockets.exceptions import ConnectionClosedOK
 
+import pybrook.redis_plugin_integration as redis_plugin
 from pybrook.config import (
     MSG_ID_FIELD,
     SPECIAL_CHAR,
@@ -84,7 +85,6 @@ from pybrook.consumers.field_generator import (
 )
 from pybrook.consumers.worker import ConsumerConfig, WorkerManager
 from pybrook.encoding import decode_stream_message, encode_stream_message
-import pybrook.redis_plugin_integration as redis_plugin
 from pybrook.schemas import FieldInfo, PyBrookSchema, StreamInfo
 
 
@@ -96,7 +96,9 @@ class ConsumerGenerator:
     @classmethod
     def gen_consumers(cls, model: "PyBrook"):
         """
-        Implementations of this method should add consumers to the [PyBrook][pybrook.models.PyBrook] instance passed as `model`.
+        Implementations of this method should add
+        consumers to the [PyBrook][pybrook.models.PyBrook]
+        instance passed as `model`.
 
         Args:
             model: The PyBrook instance processed.
@@ -130,7 +132,9 @@ class RouteGenerator:
 
 class Registrable:
     """
-    An interface describing objects that need to perform some tasks, after the initial processing stage is completed.
+    An interface describing objects that need to
+    perform some tasks, after the initial
+    processing stage is completed.
 
     This is used to solve issues like circular (recursive) references.
     """
@@ -158,8 +162,9 @@ enable mypy to detect issues with dependency types.
 
 def dependency(src: DTYPE) -> DTYPE:
     """
-    Depending on `src`, the injected dependency will be value of some field (artificial or loaded from report)
-    or a Redis instance.
+    Depending on `src`, the injected dependency
+    will be value of some field (artificial
+    or loaded from report) or a Redis instance.
 
     See [Dependency][pybrook.models.Dependency] for implementation details.
 
@@ -169,7 +174,9 @@ def dependency(src: DTYPE) -> DTYPE:
              or a Redis class (`aioredis.Redis` or `redis.Redis`).
     Returns:
          A [HistoricalDependency][pybrook.models.HistoricalDependency],
-         but mypy is made to believe that the type the returned value is [src.value_type][pybrook.models.SourceField.value_type].
+         but mypy is made to believe that the type
+         the returned value is
+         [src.value_type][pybrook.models.SourceField.value_type].
     """
     dep: DTYPE
     dep = Dependency(src)  # type: ignore
@@ -178,7 +185,8 @@ def dependency(src: DTYPE) -> DTYPE:
 
 def historical_dependency(src: DTYPE, history_length: int) -> Sequence[DTYPE]:
     """
-    See [HistoricalDependency][pybrook.models.HistoricalDependency] for implementation details.
+    See [HistoricalDependency][pybrook.models.HistoricalDependency]
+    for implementation details.
 
     Args:
         src: Target of the dependency.
@@ -203,10 +211,13 @@ DependencySource = Union["SourceField", Type[aioredis.Redis], Type[redis.Redis]]
 
 class Dependency(Registrable):
     """
-    This class represents a dependency of an [ArtificialField][pybrook.models.ArtificialField].
+    This class represents a
+    dependency of an [ArtificialField][pybrook.models.ArtificialField].
 
-    In theory, it can be used directly as an argument default of a calculation function,
-    but it is recommended to use the [dependency][pybrook.models.dependency] callable,
+    In theory, it can be used directly as
+    an argument default of a calculation function,
+    but it is recommended to use
+    the [dependency][pybrook.models.dependency] callable,
     which provides mypy compatibility instead.
     """
 
@@ -216,8 +227,15 @@ class Dependency(Registrable):
         """
         self.is_aioredis: bool = False
         self.is_redis: bool = False
-        self.src_field: Optional[SourceField] = self.validate_source_field(src)
+        self._src_field: Union[SourceField, str] = self.validate_source_field(src)
         self.is_historical = False
+
+    @property
+    def src_field(self) -> "SourceField":
+        if isinstance(self._src_field, SourceField):
+            return self._src_field
+        else:
+            raise RuntimeError("src_field not initialized via registered")
 
     @property
     def value_type(self):
@@ -248,9 +266,9 @@ class Dependency(Registrable):
         Raises:
             ValueError: when src_field is not an ArtificialField instance
         """
-        if isinstance(self.src_field, str):
+        if isinstance(self._src_field, str):
             try:
-                self.src_field = model.artificial_fields[self.src_field]
+                self._src_field = model.artificial_fields[self._src_field]
             except KeyError as e:
                 raise ValueError(
                     f"Lazy evaluation is only supported for artificial fields,"
@@ -267,11 +285,14 @@ class Dependency(Registrable):
 
 class HistoricalDependency(Dependency):
     """
-    This class represents a historical dependency of an [ArtificialField][pybrook.models.ArtificialField].
+    This class represents a historical
+    dependency of an [ArtificialField][pybrook.models.ArtificialField].
 
-    In theory, it can be used directly as an argument default of a calculation function,
-    but it is recommended to use the [historical_dependency][pybrook.models.historical_dependency] callable,
-    which provides mypy compatibility instead.
+    In theory, it can be used directly
+    as an argument default of a calculation function,
+    but it is recommended to use the
+    [historical_dependency][pybrook.models.historical_dependency]
+    callable, which provides mypy compatibility instead.
     """
 
     def __init__(self, src_field: Union["SourceField", str], history_length: int):
@@ -294,13 +315,15 @@ class HistoricalDependency(Dependency):
 
 class SourceField:
     """
-    A base class for fields ([InputField][pybrook.models.InputField], [ArtificialField][pybrook.models.ArtificialField])
+    A base class for fields
+    ([InputField][pybrook.models.InputField],
+    [ArtificialField][pybrook.models.ArtificialField])
 
     Provides metadata used to generate producers & consumers.
     """
 
     def __init__(
-        self, field_name: str, *, value_type: Type, source_obj: Type["InReport"] = None
+        self, field_name: str, *, value_type: Type, source_obj: Optional[Type["InReport"]] = None
     ):
         """
         Args:
@@ -326,7 +349,11 @@ class SourceField:
     def __repr__(self):
         return (
             f'<{self.__class__.__name__} name={self.field_name},'
-            f' report_class={self.source_obj.__name__ if self.source_obj else "artificial"},'
+            f' report_class={
+                self.source_obj.__name__ 
+                if self.source_obj else
+                "artificial"
+            },'
             f' value_type={self.value_type.__name__}>'
         )
 
@@ -375,9 +402,12 @@ to define the type of the Options.
 
 class OptionsMixin(Generic[TOPT]):
     """
-    A mixin used by metaclasses [InReportMeta][pybrook.models.InReportMeta] and [OutReportMeta][pybrook.models.OutReportMeta].
+    A mixin used by metaclasses
+    [InReportMeta][pybrook.models.InReportMeta]
+    and [OutReportMeta][pybrook.models.OutReportMeta].
 
-    It's responsibility is to add a `pybrook_options` property, that allows setting & validating passed options.
+    It's responsibility is to add a `pybrook_options` property,
+    that allows setting & validating passed options.
     """
 
     @property
@@ -410,7 +440,8 @@ class InReportMeta(OptionsMixin[InReportOptions], pydantic.main.ModelMetaclass):
         return cls
 
     def __getattr__(cls, item: str) -> SourceField:  # noqa: N805
-        """This enables the `Model.field` syntax used for references in PyBrook models."""
+        """This enables the `Model.field` syntax
+        used for references in PyBrook models."""
         if not item.startswith("_") and item in cls._input_fields:
             return cls._input_fields[item]
         return super().__getattribute__(item)  # noqa: WPS613
@@ -445,7 +476,7 @@ class InReport(
             f"/{cls.pybrook_options.name}", name=f"Add {cls.pybrook_options.name}"
         )
         async def add_report(
-            report: cls = fastapi.Body(...),  # type: ignore
+            report: cls = fastapi.Body(...),  # type: ignore # noqa: B008
             redis_conn: aioredis.Redis = redis_dep,
         ):
             await redis_conn.xadd(
@@ -470,8 +501,11 @@ class OutReportMeta(OptionsMixin[OutReportOptions], type):
 
     def __new__(mcs, name, bases, namespace):  # noqa: N804
         """
-        Initialize an [OutReport][pybrook.models.OutReport] subclass by processing all of its ReportFields,
-        and initializing the [pydantic_model][pybrook.models.OutReportMeta.pydantic_model] property.
+        Initialize an [OutReport][pybrook.models.OutReport]
+        subclass by processing all of its ReportFields,
+        and initializing the
+        [pydantic_model][pybrook.models.OutReportMeta.pydantic_model]
+         property.
         """
         cls = super().__new__(mcs, name, bases, namespace)  # noqa: WPS117
         cls._report_fields = {}
@@ -599,7 +633,7 @@ class OutReport(ConsumerGenerator, RouteGenerator, metaclass=OutReportMeta):
                         except RuntimeError:
                             active = False
                         except ValidationError as e:
-                            raise ValueError(model_cls.schema())
+                            raise ValueError(model_cls.schema()) from e
 
             try:
                 await websocket.close()
@@ -618,7 +652,7 @@ class OutReport(ConsumerGenerator, RouteGenerator, metaclass=OutReportMeta):
 
     @classmethod
     def gen_consumers(cls, model: "PyBrook"):
-        inputs = {}
+        inputs: Dict[str, redis_plugin.Dependency] = {}
         for field in cls._report_fields.values():
             stream_key: str = field.source_field.stream_name
             dep: redis_plugin.Dependency = inputs.setdefault(
@@ -650,12 +684,14 @@ class InputField(SourceField):
 
 
 class ArtificialField(SourceField, Registrable, ConsumerGenerator):
-    def __init__(self, calculate: Callable, name: str = None):
+    def __init__(self, calculate: Callable, name: Optional[str] = None):
         annotations = get_type_hints(calculate)
         try:
             value_type = annotations.pop("return")
-        except KeyError:
-            raise ValueError(f"Please specify return value for {calculate.__name__}")
+        except KeyError as e:
+            raise ValueError(
+                f"Please specify return value for {calculate.__name__}"
+            ) from e
         super().__init__(field_name=(name or calculate.__name__), value_type=value_type)
         self.args: inspect.Signature = inspect.signature(calculate)
         self.is_coro: bool = inspect.iscoroutinefunction(calculate)
@@ -696,10 +732,12 @@ class ArtificialField(SourceField, Registrable, ConsumerGenerator):
             dep.on_registered(model)
 
     def gen_consumers(self, model: "PyBrook"):  # type: ignore
-        inputs = {}
+        inputs: Dict[str, redis_plugin.Dependency] = {}
+        stream_key: str
+        dep: redis_plugin.Dependency
         for field_name, field in self.regular_dependencies.items():
-            stream_key: str = field.src_field.stream_name
-            dep: redis_plugin.Dependency = inputs.setdefault(
+            stream_key = field.src_field.stream_name
+            dep = inputs.setdefault(
                 stream_key, redis_plugin.Dependency(stream_key=stream_key)
             )
             dep.fields.append(
@@ -708,8 +746,8 @@ class ArtificialField(SourceField, Registrable, ConsumerGenerator):
                 )
             )
         for field_name, field in self.historical_dependencies.items():
-            stream_key: str = field.src_field.stream_name
-            dep: redis_plugin.Dependency = inputs.setdefault(
+            stream_key = field.src_field.stream_name
+            dep = inputs.setdefault(
                 stream_key, redis_plugin.Dependency(stream_key=stream_key)
             )
             dep.fields.append(
@@ -824,7 +862,9 @@ class PyBrook:
         """
         Args:
             redis_url: Url of the Redis Gears server.
-            api_class: API class - you can pass your own implementation of [PyBrookApi][pybrook.models.PyBrookApi] to modify the generated FastAPI app.
+            api_class: API class - you can pass your own implementation of
+             [PyBrookApi][pybrook.models.PyBrookApi]
+             to modify the generated FastAPI app.
         """
         self.inputs: Dict[str, Type[InReport]] = {}
         self.outputs: Dict[str, Type[OutReport]] = {}
@@ -835,7 +875,7 @@ class PyBrook:
         self.manager: Optional[WorkerManager] = None
         self._redis_plugin_config: redis_plugin.BrookConfig = redis_plugin.BrookConfig()
 
-    def process_model(self):
+    def process_model(self) -> None:
         if not self.consumers:
             report_classes: Iterable[Type[ConsumerGenerator]] = [
                 *self.inputs.values(),
@@ -859,12 +899,15 @@ class PyBrook:
         self.process_model()
         return self.api.fastapi
 
-    def run(self, config: Dict[str, ConsumerConfig] = None):
+    def run(self, config: Optional[Dict[str, ConsumerConfig]] = None):
         """
         Runs the workers.
 
         Args:
-            config: Consumer config, can be skipped - defaults will be used. See [pybrook.__main__][pybrook.__main__] for details.
+            config: Consumer config, can be skipped - defaults
+                will be used.
+                See [pybrook.__main__][pybrook.__main__]
+                for details.
         """
 
         config = config or {}
@@ -889,7 +932,7 @@ class PyBrook:
         longitude_field: ReportField,
         group_field: ReportField,
         time_field: ReportField,
-        direction_field: ReportField = None,
+        direction_field: Optional[ReportField] = None,
     ):
         """Use this method to set metadata used by frontend."""
         self.api.schema.latitude_field = self._gen_field_info(latitude_field)
@@ -900,7 +943,7 @@ class PyBrook:
             self.api.schema.direction_field = self._gen_field_info(direction_field)
 
     def input(  # noqa: A003
-        self, name: str = None, *, id_field: str
+        self, name: Optional[str] = None, *, id_field: str
     ) -> Callable[[TI], TI]:
         """
         Register an input report.
@@ -909,7 +952,7 @@ class PyBrook:
             A decorator, which accepts an InReport as an argument.
         """
 
-        def wrapper(cls) -> TI:
+        def wrapper(cls):
             name_safe = name or cls.__name__
             self.inputs[name_safe] = cls
             cls.pybrook_options = InReportOptions(id_field=id_field, name=name_safe)
@@ -918,7 +961,7 @@ class PyBrook:
 
         return wrapper
 
-    def output(self, name: str = None) -> Callable[[TO], TO]:
+    def output(self, name: Optional[str] = None) -> Callable[[TO], TO]:
         """
         Register an output report.
 
@@ -926,7 +969,7 @@ class PyBrook:
             A decorator, which accepts an OutReport as an argument.
         """
 
-        def wrapper(cls) -> TO:
+        def wrapper(cls):
             name_safe = name or cls.__name__
             self.outputs[name_safe] = cls
             cls.pybrook_options = OutReportOptions(name=name_safe)
@@ -935,13 +978,14 @@ class PyBrook:
 
         return wrapper
 
-    def artificial_field(self, name: str = None) -> Callable[[Callable], Any]:
+    def artificial_field(self, name: Optional[str] = None) -> Callable[[Callable], Any]:
         """
         Register an artificial field.
 
         Returns:
             A decorator, which accepts a callable as an argument.
-            The callable provided is used to calculate the value of the artificial field.
+            The callable provided is used to calculate
+            the value of the artificial field.
         """
 
         def wrapper(fun: Callable) -> Any:

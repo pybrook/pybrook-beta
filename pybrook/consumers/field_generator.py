@@ -17,11 +17,11 @@
 #
 
 import dataclasses
-from typing import Callable, Dict, List, Type, Union
+from typing import Callable, Dict, List, Type, Union, Optional
 
-import redis.asyncio as aioredis
 import pydantic
 import redis
+import redis.asyncio as aioredis
 from pydantic import ValidationError
 
 from pybrook.config import ARTIFICIAL_NAMESPACE, MSG_ID_FIELD, SPECIAL_CHAR
@@ -50,7 +50,7 @@ class BaseFieldGenerator(BaseStreamConsumer):
         namespace: str = ARTIFICIAL_NAMESPACE,
         dependency_stream: str,
         dependencies: List[Dep],
-        redis_deps: List[str] = None,
+        redis_deps: Optional[List[str]] = None,
         read_chunk_length: int = 200,
         **kwargs,
     ):

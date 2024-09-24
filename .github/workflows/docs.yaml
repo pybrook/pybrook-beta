@@ -12,8 +12,8 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: actions/setup-python@v2
-      - uses: snok/install-poetry@v1
+      - uses: pdm-project/setup-pdm@v4
       - name: Install development dependencies
-        run: poetry install --with dev
+        run: pdm install -G docs
       - name: Publish docs
         run: poetry run mkdocs gh-deploy

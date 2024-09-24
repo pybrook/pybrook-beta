@@ -1,7 +1,6 @@
 .PHONY: format
 format:
-	poetry run isort pybrook/ tests/
-	poetry run yapf -i -vv "--style={based_on_style: pep8, split_complex_comprehension: True, split_before_arithmetic_operator: True}" -r pybrook/ tests/
+	pdm run ruff format pybrook/ tests/
 
 .PHONY: lint
 lint:

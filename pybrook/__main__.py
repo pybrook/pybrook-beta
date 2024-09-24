@@ -32,6 +32,8 @@
 #
 
 import argparse
+from argparse import ArgumentError
+from contextlib import suppress
 from importlib import import_module, reload
 from typing import Dict, List, Union
 
@@ -79,21 +81,20 @@ def add_consumer_args(
         consumers: List of consumers to generate CLI options for.
 
     Returns:
-        A dictionary of consumer configs filled with defaults. Consumer group names are used as keys.
+        A dictionary of consumer configs filled with defaults.
+        Consumer group names are used as keys.
 
     """
     workers_config = {}
     for c in consumers:
         consumer_config = ConsumerConfig()
-        try:
+        with suppress(ArgumentError):
             parser.add_argument(
                 f"--{c.consumer_group_name}-workers",
                 type=int,
                 help="(default: %(default)s)",  # noqa: WPS323
                 default=consumer_config.workers,
             )
-        except argparse.ArgumentError:
-            ...
         workers_config[c.consumer_group_name] = consumer_config
     return workers_config
 
@@ -106,18 +107,20 @@ def update_workers_config(
 
     Args:
         args: An argparse `Namespace`
-        workers_config:  A dictionary of consumer configs to update using settings loaded from the `args` argument.
+        workers_config:  A dictionary of
+            consumer configs to update using
+            settings loaded from the `args` argument.
 
     Returns:
 
     """
-    for c in workers_config.keys():
+    for c in workers_config:
         for arg in ("workers",):
             arg_name: str = c.replace("-", "_") + "_" + arg
             setattr(workers_config[c], arg, getattr(args, arg_name))
 
 
-def main():
+def main() -> None:
     """
     CLI Entrypoint.
 

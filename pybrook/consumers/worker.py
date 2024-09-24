@@ -20,7 +20,8 @@ import asyncio
 import dataclasses
 import multiprocessing
 import signal
-from typing import Any, Callable, Dict, Iterable, List, Set, Tuple
+from contextlib import suppress
+from typing import Any, Callable, Dict, Iterable, List, Set, Tuple, Optional
 
 import redis
 import uvloop
@@ -98,7 +99,7 @@ class WorkerManager:
         self,
         consumers: Iterable[BaseStreamConsumer],
         redis_plugin_config: BrookConfig,
-        consumer_config: Dict[str, ConsumerConfig] = None,
+        consumer_config: Optional[Dict[str, ConsumerConfig]] = None,
         enable_gears: bool = True,
     ):
         self.consumers = consumers
@@ -119,7 +120,7 @@ class WorkerManager:
         self._kill_on_terminate = True
 
     @logger.catch()
-    def run(self):
+    def run(self) -> None:
         if self.processes:
             raise RuntimeError("Already running!")
         signal.signal(signal.SIGINT, lambda *args: self.terminate)
@@ -135,10 +136,8 @@ class WorkerManager:
             redis_conn.execute_command("PB.SETCONFIG", self.redis_plugin_config.json())
 
         for proc in self.processes:
-            try:
+            with suppress(KeyboardInterrupt):
                 proc.join()
-            except KeyboardInterrupt:
-                ...
         self.processes = []
 
     def spawn_workers(self):

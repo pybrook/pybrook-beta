@@ -1,5 +1,6 @@
 """
-This module contains definitions of Pydantic models used to tell the frontend about available streams & fields.
+This module contains definitions of Pydantic models
+used to tell the frontend about available streams & fields.
 
 This is required, because the OpenAPI documentation doesn't support WebSockets.
 """
