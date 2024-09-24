@@ -1,4 +1,4 @@
-name: ci
+name: PyBrook Docker Image
 
 on:
   push:

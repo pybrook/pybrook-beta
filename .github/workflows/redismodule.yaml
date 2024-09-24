@@ -1,4 +1,4 @@
-name: ci
+name: PyBrook Redis Docker Image
 
 on:
   push:
